@@ -1,0 +1,24 @@
+REM TempleCode Rainbow Spiral
+REM Demonstrates FOR loops with Logo turtle graphics and colour changes
+
+CLEARSCREEN
+HIDETURTLE
+SETPENSIZE 2
+PRINT "Drawing rainbow spiral..."
+
+FOR I = 1 TO 180
+    REM Cycle through colours
+    IF I MOD 7 = 1 THEN SETCOLOR red
+    IF I MOD 7 = 2 THEN SETCOLOR orange
+    IF I MOD 7 = 3 THEN SETCOLOR yellow
+    IF I MOD 7 = 4 THEN SETCOLOR green
+    IF I MOD 7 = 5 THEN SETCOLOR blue
+    IF I MOD 7 = 6 THEN SETCOLOR violet
+    IF I MOD 7 = 0 THEN SETCOLOR magenta
+
+    FORWARD I
+    RIGHT 59
+NEXT I
+
+PRINT "Rainbow spiral complete!"
+END

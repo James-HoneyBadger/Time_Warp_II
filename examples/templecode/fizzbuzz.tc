@@ -1,0 +1,26 @@
+REM TempleCode FizzBuzz
+REM Classic programming challenge in BASIC style
+
+PRINT "================================"
+PRINT "   FizzBuzz (1 to 50)"
+PRINT "================================"
+PRINT ""
+
+FOR I = 1 TO 50
+    IF I MOD 15 = 0 THEN PRINT I; " - FizzBuzz!"
+    IF I MOD 15 = 0 THEN GOTO 100
+
+    IF I MOD 3 = 0 THEN PRINT I; " - Fizz"
+    IF I MOD 3 = 0 THEN GOTO 100
+
+    IF I MOD 5 = 0 THEN PRINT I; " - Buzz"
+    IF I MOD 5 = 0 THEN GOTO 100
+
+    PRINT I
+
+100 REM next iteration
+NEXT I
+
+PRINT ""
+PRINT "FizzBuzz complete!"
+END

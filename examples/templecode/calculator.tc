@@ -1,0 +1,34 @@
+10 REM TempleCode Calculator
+20 REM A simple four-function calculator using BASIC
+30 PRINT "================================"
+40 PRINT "   TempleCode Calculator"
+50 PRINT "================================"
+60 PRINT ""
+
+*loop
+70 PRINT "Enter first number:"
+80 INPUT A
+90 PRINT "Enter operator (+, -, *, /):"
+100 INPUT OP
+110 PRINT "Enter second number:"
+120 INPUT B
+
+130 IF OP = "+" THEN LET RESULT = A + B
+140 IF OP = "-" THEN LET RESULT = A - B
+150 IF OP = "*" THEN LET RESULT = A * B
+160 IF OP = "/" THEN GOTO 300
+
+200 PRINT ""
+210 PRINT A; " "; OP; " "; B; " = "; RESULT
+220 PRINT ""
+230 PRINT "Another calculation? (yes/no)"
+240 INPUT AGAIN
+250 IF AGAIN = "yes" THEN GOTO 70
+260 PRINT "Thanks for using TempleCode Calculator!"
+270 END
+
+REM Division with zero check
+300 IF B = 0 THEN PRINT "Error: Cannot divide by zero!"
+310 IF B = 0 THEN GOTO 220
+320 LET RESULT = A / B
+330 GOTO 200

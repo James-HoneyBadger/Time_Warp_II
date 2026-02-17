@@ -1,0 +1,21 @@
+REM TempleCode Countdown Timer
+REM BASIC control flow with PILOT output
+T:================================
+T:     Countdown Timer
+T:================================
+T:
+T:How many seconds to count down?
+A:
+C:SECONDS = ANSWER
+
+LET I = SECONDS
+WHILE I >= 0
+    IF I > 0 THEN PRINT I; "..."
+    IF I = 0 THEN PRINT "LIFTOFF!"
+    P:1000
+    LET I = I - 1
+WEND
+
+T:
+T:Countdown complete!
+E:

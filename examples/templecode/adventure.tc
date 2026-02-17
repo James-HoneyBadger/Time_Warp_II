@@ -1,0 +1,179 @@
+REM TempleCode Storyteller
+REM An interactive story using PILOT branching
+
+T:========================================
+T:   The TempleCode Adventure
+T:========================================
+T:
+T:You wake up in a mysterious cave.
+T:A faint light glows ahead, and you hear
+T:water dripping somewhere in the dark.
+T:
+T:What do you do?
+T:  1) Walk toward the light
+T:  2) Follow the sound of water
+T:  3) Search the ground nearby
+T:
+A:
+
+M:1,light
+Y:J:*light
+
+M:2,water
+Y:J:*water
+
+M:3,search,ground
+Y:J:*search
+
+N:T:You stand still, unsure what to do...
+N:T:The light flickers invitingly.
+N:J:*light
+
+*light
+T:
+T:You walk toward the light and find a
+T:narrow tunnel opening. Sunlight streams
+T:through cracks in the rock above.
+T:
+T:You see a rope ladder and a stone staircase.
+T:Which do you take?
+T:  1) Climb the rope ladder
+T:  2) Take the stone staircase
+A:
+
+M:1,rope,ladder
+Y:J:*rope
+
+M:2,stone,stair
+Y:J:*stair
+
+N:J:*stair
+
+*water
+T:
+T:You follow the sound and discover an
+T:underground stream. The water is clear
+T:and cool. You spot something shiny
+T:beneath the surface.
+T:
+T:Do you reach for it?
+T:  1) Yes, grab it!
+T:  2) No, keep moving
+A:
+
+M:1,yes,grab
+Y:T:You pull out a golden compass!
+Y:T:It points toward a hidden passage.
+Y:J:*passage
+
+M:2,no,keep
+Y:T:You follow the stream downstream.
+Y:J:*stair
+
+N:J:*passage
+
+*search
+T:
+T:You feel around the cave floor and find
+T:a worn leather journal. Inside, someone
+T:has drawn a map of the cave system.
+T:
+T:The map shows two paths:
+T:  1) A passage marked "SAFE"
+T:  2) A passage marked "TREASURE"
+A:
+
+M:1,safe
+Y:J:*stair
+
+M:2,treasure
+Y:J:*passage
+
+N:J:*passage
+
+*rope
+T:
+T:You climb the rope ladder. It creaks and sways
+T:but holds firm. You emerge on a grassy hilltop
+T:overlooking a beautiful valley.
+T:
+T:The sun is warm. You're free!
+T:
+T:     THE END - The Quick Escape
+T:
+
+REM Draw a sun
+CLEARSCREEN
+HIDETURTLE
+SETCOLOR gold
+PENUP
+SETXY 0 50
+PENDOWN
+CIRCLE 30
+SETCOLOR yellow
+REPEAT 12 [PENUP FORWARD 45 PENDOWN FORWARD 15 PENUP BACK 60 PENDOWN RIGHT 30]
+E:
+
+*stair
+T:
+T:You climb the ancient stone staircase.
+T:Each step echoes through the cave.
+T:After a long ascent, you reach a wooden
+T:door. You push it open and step into
+T:a peaceful forest clearing.
+T:
+T:Birds sing in the trees. A path leads
+T:to a nearby village.
+T:
+T:     THE END - The Forest Path
+T:
+
+REM Draw a tree
+CLEARSCREEN
+HIDETURTLE
+SETCOLOR brown
+SETPENSIZE 4
+PENUP
+SETXY 0 -80
+PENDOWN
+FORWARD 80
+SETCOLOR green
+SETPENSIZE 2
+REPEAT 3 [LEFT 120 FORWARD 50]
+E:
+
+*passage
+T:
+T:You discover a hidden chamber filled with
+T:glittering crystals! Light dances across
+T:the walls in every colour of the rainbow.
+T:
+T:In the centre sits a small treasure chest.
+T:You open it and find... a note that reads:
+T:
+T:   "The real treasure is the adventure
+T:    you had along the way!"
+T:
+T:You smile, pocket a crystal as a souvenir,
+T:and find your way back to the surface.
+T:
+T:     THE END - The Crystal Chamber
+T:
+
+REM Draw crystals
+CLEARSCREEN
+HIDETURTLE
+SETPENSIZE 2
+SETCOLOR cyan
+REPEAT 6 [FORWARD 30 BACK 30 RIGHT 60]
+SETCOLOR magenta
+PENUP
+SETXY 50 0
+PENDOWN
+REPEAT 6 [FORWARD 25 BACK 25 RIGHT 60]
+SETCOLOR yellow
+PENUP
+SETXY -50 0
+PENDOWN
+REPEAT 6 [FORWARD 20 BACK 20 RIGHT 60]
+E:

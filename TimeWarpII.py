@@ -282,14 +282,36 @@ class TempleCodeApp:
         program_menu.add_separator()
         examples_menu = tk.Menu(program_menu, tearoff=0)
         program_menu.add_cascade(label="Load Example", menu=examples_menu)
-        for label, path in [
+        for item in [
             ("Hello World",            "examples/templecode/hello.tc"),
             ("Turtle Graphics Spiral", "examples/templecode/spiral.tc"),
             ("Quiz (PILOT style)",     "examples/templecode/quiz.tc"),
             ("Number Guessing Game",   "examples/templecode/guess.tc"),
             ("Mandelbrot (Turtle Art)","examples/templecode/mandelbrot.tc"),
+            None,  # separator
+            ("Calculator",             "examples/templecode/calculator.tc"),
+            ("Countdown Timer",        "examples/templecode/countdown.tc"),
+            ("FizzBuzz",               "examples/templecode/fizzbuzz.tc"),
+            ("Fibonacci Sequence",     "examples/templecode/fibonacci.tc"),
+            ("Times Tables Trainer",   "examples/templecode/timestables.tc"),
+            ("Temperature Converter",  "examples/templecode/temperature.tc"),
+            ("Dice Roller",            "examples/templecode/dice.tc"),
+            None,  # separator
+            ("Science Quiz",           "examples/templecode/science_quiz.tc"),
+            ("Adventure Story",        "examples/templecode/adventure.tc"),
+            ("Interactive Drawing",    "examples/templecode/interactive_drawing.tc"),
+            None,  # separator
+            ("Rainbow Spiral",         "examples/templecode/rainbow.tc"),
+            ("Shapes Gallery",         "examples/templecode/shapes.tc"),
+            ("Flower Garden",          "examples/templecode/flower.tc"),
+            ("Kaleidoscope",           "examples/templecode/kaleidoscope.tc"),
+            ("Snowflake Fractal",      "examples/templecode/snowflake.tc"),
+            ("Clock Face",             "examples/templecode/clock.tc"),
         ]:
-            examples_menu.add_command(label=label, command=lambda p=path: self.load_example(p))
+            if item is None:
+                examples_menu.add_separator()
+            else:
+                examples_menu.add_command(label=item[0], command=lambda p=item[1]: self.load_example(p))
 
         # --- Debug ---
         debug_menu = tk.Menu(menubar, tearoff=0)

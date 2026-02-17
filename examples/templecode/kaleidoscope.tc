@@ -1,0 +1,51 @@
+REM TempleCode Geometric Kaleidoscope
+REM Complex nested patterns using Logo turtle graphics
+
+CLEARSCREEN
+HIDETURTLE
+SETPENSIZE 1
+PRINT "Drawing Kaleidoscope..."
+
+REM Pattern 1: Rotating squares (blue)
+SETCOLOR blue
+REPEAT 18 [REPEAT 4 [FORWARD 60 RIGHT 90] RIGHT 20]
+
+REM Pattern 2: Rotating triangles (red, offset)
+PENUP
+HOME
+PENDOWN
+SETCOLOR red
+REPEAT 12 [REPEAT 3 [FORWARD 80 RIGHT 120] RIGHT 30]
+
+REM Pattern 3: Inner star burst (gold)
+PENUP
+HOME
+PENDOWN
+SETCOLOR gold
+REPEAT 36 [FORWARD 40 BACK 40 RIGHT 10]
+
+REM Pattern 4: Outer circle ring (green)
+PENUP
+HOME
+PENDOWN
+SETCOLOR green
+SETPENSIZE 2
+REPEAT 12 [PENUP FORWARD 100 PENDOWN CIRCLE 15 PENUP BACK 100 PENDOWN RIGHT 30]
+
+REM Pattern 5: Tiny centre detail (white)
+PENUP
+HOME
+PENDOWN
+SETCOLOR white
+SETPENSIZE 1
+REPEAT 8 [REPEAT 4 [FORWARD 15 RIGHT 90] RIGHT 45]
+
+REM Centre dot
+PENUP
+HOME
+PENDOWN
+SETCOLOR yellow
+DOT 8
+
+PRINT "Kaleidoscope complete!"
+END

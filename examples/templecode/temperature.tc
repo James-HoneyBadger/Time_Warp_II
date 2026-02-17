@@ -1,0 +1,48 @@
+REM TempleCode Temperature Converter
+REM Demonstrates BASIC math with PILOT-style interaction
+
+T:================================
+T:   Temperature Converter
+T:================================
+T:
+
+*menu
+T:Choose a conversion:
+T:  1) Celsius to Fahrenheit
+T:  2) Fahrenheit to Celsius
+T:  3) Celsius to Kelvin
+T:  4) Quit
+T:
+T:Enter your choice:
+A:
+
+M:4,quit,exit
+Y:T:Goodbye!
+Y:E:
+
+M:1
+Y:T:Enter temperature in Celsius:
+Y:A:TEMP
+M:1
+Y:C:RESULT = TEMP * 9 / 5 + 32
+Y:T:*TEMP* °C = *RESULT* °F
+Y:J:*menu
+
+M:2
+Y:T:Enter temperature in Fahrenheit:
+Y:A:TEMP
+M:2
+Y:C:RESULT = (TEMP - 32) * 5 / 9
+Y:T:*TEMP* °F = *RESULT* °C
+Y:J:*menu
+
+M:3
+Y:T:Enter temperature in Celsius:
+Y:A:TEMP
+M:3
+Y:C:RESULT = TEMP + 273
+Y:T:*TEMP* °C = *RESULT* K
+Y:J:*menu
+
+N:T:Invalid choice. Please enter 1-4.
+N:J:*menu

@@ -1,0 +1,38 @@
+REM TempleCode Koch Snowflake
+REM Recursive-style fractal using Logo procedures
+
+CLEARSCREEN
+HIDETURTLE
+SETPENSIZE 1
+SETCOLOR cyan
+PRINT "Drawing Koch Snowflake..."
+
+REM Koch curve approximation (depth 3, ~64 segments per side)
+REM Since TempleCode doesn't have true recursion depth control,
+REM we manually unroll a depth-3 Koch curve
+
+TO KOCH3 :len
+    REM Depth-3 Koch curve: each segment replaced 4 times
+    REM Length of smallest segment = :len / 27
+    LET SEG = :len / 27
+    REM 81 mini-segments trace the full depth-3 Koch curve
+    REM Pattern: F+F--F+F at each level
+    REM Manually unrolled depth-2 on each of 4 sub-segments
+    REPEAT 4 [FORWARD SEG LEFT 60 FORWARD SEG RIGHT 120 FORWARD SEG LEFT 60 FORWARD SEG RIGHT 60 FORWARD SEG LEFT 60 FORWARD SEG RIGHT 120 FORWARD SEG LEFT 60 FORWARD SEG LEFT 120 FORWARD SEG LEFT 60 FORWARD SEG RIGHT 120 FORWARD SEG LEFT 60 FORWARD SEG RIGHT 60 FORWARD SEG LEFT 60 FORWARD SEG RIGHT 120 FORWARD SEG LEFT 60 FORWARD SEG]
+END
+
+REM Position the snowflake
+PENUP
+SETXY -80 50
+PENDOWN
+
+REM Draw three sides of the snowflake
+SETHEADING 90
+FORWARD 160
+LEFT 120
+FORWARD 160
+LEFT 120
+FORWARD 160
+
+PRINT "Koch Snowflake complete!"
+END

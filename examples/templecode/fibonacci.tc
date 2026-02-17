@@ -1,0 +1,50 @@
+REM TempleCode Fibonacci Sequence
+REM Classic math sequence using BASIC
+
+PRINT "================================"
+PRINT "   Fibonacci Sequence"
+PRINT "================================"
+PRINT ""
+PRINT "How many Fibonacci numbers to generate?"
+INPUT COUNT
+
+LET A = 0
+LET B = 1
+
+PRINT "Fibonacci sequence:"
+PRINT ""
+
+FOR I = 1 TO COUNT
+    PRINT "F("; I; ") = "; A
+    LET TEMP = A + B
+    LET A = B
+    LET B = TEMP
+NEXT I
+
+PRINT ""
+PRINT "================================"
+
+REM Visualise the sequence with turtle graphics
+PRINT ""
+PRINT "Drawing Fibonacci spiral..."
+
+CLEARSCREEN
+HIDETURTLE
+SETPENSIZE 2
+SETCOLOR cyan
+
+LET A = 0
+LET B = 1
+
+FOR I = 1 TO 10
+    REM Draw arc-approximation for each Fibonacci number
+    LET SIZE = B * 3
+    IF SIZE > 0 THEN FORWARD SIZE
+    RIGHT 90
+    LET TEMP = A + B
+    LET A = B
+    LET B = TEMP
+NEXT I
+
+PRINT "Fibonacci visualisation complete!"
+END

@@ -1,0 +1,54 @@
+REM TempleCode Times Tables Trainer
+REM Mixes PILOT quiz interaction with BASIC scoring
+
+T:================================
+T:   Times Tables Trainer
+T:================================
+T:
+T:Which times table do you want to practise? (1-12)
+A:
+C:TABLE = ANSWER
+C:SCORE = 0
+C:TOTAL = 10
+
+RANDOMIZE TIMER
+
+FOR ROUND = 1 TO 10
+    LET N = INT(RND * 12) + 1
+    LET CORRECT = TABLE * N
+    PRINT ""
+    PRINT "Question "; ROUND; " of 10"
+    PRINT TABLE; " x "; N; " = ?"
+    INPUT GUESS
+    IF GUESS = CORRECT THEN GOTO 200
+    PRINT "Not quite! "; TABLE; " x "; N; " = "; CORRECT
+    GOTO 300
+
+200 PRINT "Correct!"
+    LET SCORE = SCORE + 1
+
+300 REM Continue to next question
+NEXT ROUND
+
+PRINT ""
+PRINT "================================"
+PRINT "   Results"
+PRINT "================================"
+PRINT "Score: "; SCORE; " out of "; TOTAL
+PRINT ""
+
+IF SCORE = 10 THEN PRINT "PERFECT! You're a times table master!"
+IF SCORE >= 8 THEN IF SCORE < 10 THEN PRINT "Great work! Almost perfect!"
+IF SCORE >= 5 THEN IF SCORE < 8 THEN PRINT "Good effort! Keep practising!"
+IF SCORE < 5 THEN PRINT "Keep trying! Practice makes perfect!"
+
+REM Draw a star reward if score is high
+IF SCORE >= 8 THEN GOTO 500
+GOTO 600
+
+500 PRINT ""
+PRINT "Here's a gold star for your great score!"
+SETCOLOR gold
+STAR 5 60
+
+600 END

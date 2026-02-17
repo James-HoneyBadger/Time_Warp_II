@@ -1,0 +1,86 @@
+REM TempleCode Flower Garden
+REM Beautiful flower patterns using Logo procedures
+
+REM Draw a single flower petal
+TO PETAL :size
+    REPEAT 2 [ARC 60 :size RIGHT 120]
+END
+
+REM Position: center
+CLEARSCREEN
+HIDETURTLE
+
+REM Draw a red flower (center)
+SETCOLOR red
+REPEAT 6 [PETAL 40 RIGHT 60]
+SETCOLOR yellow
+DOT 15
+
+REM Move to draw a blue flower (upper left)
+PENUP
+SETXY -120 80
+PENDOWN
+SETCOLOR blue
+REPEAT 8 [PETAL 30 RIGHT 45]
+SETCOLOR white
+DOT 10
+
+REM Move to draw a green flower (upper right)
+PENUP
+SETXY 120 80
+PENDOWN
+SETCOLOR green
+REPEAT 5 [PETAL 35 RIGHT 72]
+SETCOLOR yellow
+DOT 12
+
+REM Move to draw an orange flower (lower left)
+PENUP
+SETXY -100 -80
+PENDOWN
+SETCOLOR orange
+REPEAT 10 [PETAL 25 RIGHT 36]
+SETCOLOR red
+DOT 8
+
+REM Move to draw a purple flower (lower right)
+PENUP
+SETXY 100 -80
+PENDOWN
+SETCOLOR purple
+REPEAT 12 [PETAL 20 RIGHT 30]
+SETCOLOR white
+DOT 10
+
+REM Draw stems
+SETCOLOR green
+SETPENSIZE 3
+
+PENUP
+SETXY 0 0
+PENDOWN
+SETY -120
+
+PENUP
+SETXY -120 80
+PENDOWN
+SETXY -120 -120
+
+PENUP
+SETXY 120 80
+PENDOWN
+SETXY 120 -120
+
+PENUP
+SETXY -100 -80
+PENDOWN
+SETXY -100 -120
+
+PENUP
+SETXY 100 -80
+PENDOWN
+SETXY 100 -120
+
+SETPENSIZE 1
+PRINT "Flower Garden complete!"
+END

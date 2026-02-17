@@ -1,0 +1,92 @@
+REM TempleCode Analogue Clock Face
+REM Draws a clock face on the canvas using Logo
+
+CLEARSCREEN
+HIDETURTLE
+PRINT "Drawing clock face..."
+
+REM Draw outer circle
+SETCOLOR white
+SETPENSIZE 3
+PENUP
+SETXY 0 0
+PENDOWN
+CIRCLE 120
+
+REM Draw inner circle
+SETCOLOR gray
+SETPENSIZE 1
+CIRCLE 115
+
+REM Draw hour markers
+SETCOLOR white
+SETPENSIZE 3
+FOR H = 1 TO 12
+    PENUP
+    HOME
+    SETHEADING H * 30
+    FORWARD 100
+    PENDOWN
+    FORWARD 15
+NEXT H
+
+REM Draw minute tick marks
+SETPENSIZE 1
+SETCOLOR gray
+FOR M = 1 TO 60
+    PENUP
+    HOME
+    SETHEADING M * 6
+    FORWARD 108
+    PENDOWN
+    FORWARD 7
+NEXT M
+
+REM Draw hour numbers using dots at positions
+SETCOLOR yellow
+SETPENSIZE 1
+FOR H = 1 TO 12
+    PENUP
+    HOME
+    SETHEADING H * 30
+    FORWARD 90
+    PENDOWN
+    DOT 3
+NEXT H
+
+REM Draw hour hand (pointing to 10)
+PENUP
+HOME
+PENDOWN
+SETCOLOR white
+SETPENSIZE 4
+SETHEADING 300
+FORWARD 65
+
+REM Draw minute hand (pointing to 2)
+PENUP
+HOME
+PENDOWN
+SETCOLOR white
+SETPENSIZE 2
+SETHEADING 60
+FORWARD 90
+
+REM Draw second hand (pointing to 8)
+PENUP
+HOME
+PENDOWN
+SETCOLOR red
+SETPENSIZE 1
+SETHEADING 240
+FORWARD 95
+
+REM Centre dot
+PENUP
+HOME
+PENDOWN
+SETCOLOR red
+DOT 6
+
+PRINT "Clock face complete! (showing 10:10)"
+END

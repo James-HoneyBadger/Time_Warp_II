@@ -1,0 +1,88 @@
+REM TempleCode Shapes Gallery
+REM Demonstrates Logo shape commands and procedures
+
+CLEARSCREEN
+HIDETURTLE
+PRINT "Drawing a gallery of shapes..."
+
+REM --- Row 1: Basic shapes ---
+
+REM Square (top left)
+PENUP
+SETXY -150 100
+PENDOWN
+SETCOLOR red
+SETPENSIZE 2
+SQUARE 60
+PENUP
+SETXY -140 70
+PENDOWN
+LABEL Square
+
+REM Triangle (top center)
+PENUP
+SETXY -20 100
+PENDOWN
+SETCOLOR blue
+TRIANGLE 60
+PENUP
+SETXY -25 70
+PENDOWN
+LABEL Triangle
+
+REM Circle (top right)
+PENUP
+SETXY 120 100
+PENDOWN
+SETCOLOR green
+CIRCLE 30
+PENUP
+SETXY 105 60
+PENDOWN
+LABEL Circle
+
+REM --- Row 2: Complex shapes ---
+
+REM Pentagon (bottom left)
+PENUP
+SETXY -150 -20
+PENDOWN
+SETCOLOR orange
+POLYGON 5 40
+PENUP
+SETXY -155 -70
+PENDOWN
+LABEL Pentagon
+
+REM Hexagon (bottom center)
+PENUP
+SETXY -20 -20
+PENDOWN
+SETCOLOR purple
+POLYGON 6 35
+PENUP
+SETXY -30 -70
+PENDOWN
+LABEL Hexagon
+
+REM Star (bottom right)
+PENUP
+SETXY 120 -20
+PENDOWN
+SETCOLOR gold
+STAR 5 45
+PENUP
+SETXY 115 -70
+PENDOWN
+LABEL Star
+
+REM --- Center decoration ---
+PENUP
+SETXY 0 -120
+PENDOWN
+SETCOLOR cyan
+SETPENSIZE 1
+REPEAT 36 [FORWARD 5 RIGHT 10]
+
+PRINT "Shapes Gallery complete!"
+END

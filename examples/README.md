@@ -14,14 +14,32 @@ examples/
     ├── spiral.tc                  # Colorful spiral with Logo turtle graphics
     ├── quiz.tc                    # Geography quiz using PILOT interaction
     ├── guess.tc                   # Number guessing game in BASIC
-    └── mandelbrot.tc              # Turtle art patterns with nested REPEAT
+    ├── mandelbrot.tc              # Turtle art patterns with nested REPEAT
+    ├── calculator.tc              # Four-function calculator in BASIC
+    ├── countdown.tc               # Countdown timer with PILOT and BASIC
+    ├── fizzbuzz.tc                # Classic FizzBuzz challenge
+    ├── fibonacci.tc               # Fibonacci sequence with visualisation
+    ├── timestables.tc             # Times tables trainer with scoring
+    ├── temperature.tc             # Temperature converter using PILOT menus
+    ├── dice.tc                    # Dice roller game with canvas graphics
+    ├── science_quiz.tc            # Science quiz with PILOT and rewards
+    ├── adventure.tc               # Branching text adventure story
+    ├── interactive_drawing.tc     # User-driven shape drawing
+    ├── rainbow.tc                 # Rainbow-coloured spiral
+    ├── shapes.tc                  # Gallery of Logo shape commands
+    ├── flower.tc                  # Flower garden with Logo procedures
+    ├── kaleidoscope.tc            # Geometric kaleidoscope patterns
+    ├── snowflake.tc               # Koch snowflake fractal
+    └── clock.tc                   # Analogue clock face drawing
 ```
 
 ---
 
 ## Example Programs
 
-### 1. hello.tc — Hello World
+### Starter Programs
+
+#### 1. hello.tc — Hello World
 
 Demonstrates all three TempleCode heritages in one program:
 - **BASIC** `PRINT` statements with line numbers
@@ -40,7 +58,7 @@ FORWARD 80
 
 ---
 
-### 2. spiral.tc — Colorful Spiral
+#### 2. spiral.tc — Colorful Spiral
 
 Uses Logo turtle graphics to draw a colorful spiral pattern.
 
@@ -56,7 +74,7 @@ NEXT I
 
 ---
 
-### 3. quiz.tc — Geography Quiz
+#### 3. quiz.tc — Geography Quiz
 
 An interactive quiz built entirely with PILOT commands (`T:`, `A:`, `M:`, `Y:`, `N:`).
 
@@ -72,7 +90,7 @@ N:T:Sorry, the answer is Paris.
 
 ---
 
-### 4. guess.tc — Number Guessing Game
+#### 4. guess.tc — Number Guessing Game
 
 A classic guessing game written in BASIC style with line numbers, `INPUT`, `IF/THEN`, and `GOTO`.
 
@@ -90,7 +108,7 @@ A classic guessing game written in BASIC style with line numbers, `INPUT`, `IF/T
 
 ---
 
-### 5. mandelbrot.tc — Turtle Art Patterns
+#### 5. mandelbrot.tc — Turtle Art Patterns
 
 Complex geometric patterns using nested Logo `REPEAT` blocks with multiple colors.
 
@@ -107,6 +125,142 @@ REPEAT 36 [FORWARD 80 RIGHT 170]
 
 ---
 
+### BASIC Programs
+
+#### 6. calculator.tc — Calculator
+
+A four-function calculator in BASIC style with division-by-zero checking and a loop for repeated calculations.
+
+**Concepts:** `INPUT`, `IF/THEN`, `GOTO`, arithmetic, loops.
+
+---
+
+#### 7. fizzbuzz.tc — FizzBuzz
+
+The classic programming challenge: print "Fizz" for multiples of 3, "Buzz" for 5, "FizzBuzz" for both.
+
+**Concepts:** `FOR/NEXT`, `MOD` operator, `IF/THEN`, `GOTO`.
+
+---
+
+#### 8. fibonacci.tc — Fibonacci Sequence
+
+Generates the Fibonacci sequence to a user-specified length, then draws a spiral visualisation on the canvas.
+
+**Concepts:** `FOR/NEXT`, `INPUT`, variable swapping, Logo `FORWARD`/`RIGHT`.
+
+---
+
+### PILOT Programs
+
+#### 9. science_quiz.tc — Science Quiz
+
+A five-question science quiz using full PILOT interaction with score tracking and a visual reward based on performance.
+
+**Concepts:** `T:`, `A:`, `M:`, `Y:`, `N:`, `C:` (compute), turtle graphics rewards.
+
+---
+
+#### 10. temperature.tc — Temperature Converter
+
+A menu-driven temperature converter using PILOT labels and jumps for navigation between Celsius, Fahrenheit, and Kelvin conversions.
+
+**Concepts:** `T:`, `A:`, `M:`, `Y:`, `J:` (jump), `C:` (compute), `*labels`.
+
+---
+
+#### 11. adventure.tc — Adventure Story
+
+A branching interactive fiction game where the player explores a cave system with multiple endings, each illustrated with turtle graphics.
+
+**Concepts:** `T:`, `A:`, `M:`, `Y:`, `N:`, `J:` (jump), `*labels`, Logo drawing.
+
+---
+
+### Mixed Programs
+
+#### 12. countdown.tc — Countdown Timer
+
+A countdown timer that combines PILOT input with BASIC loops and PILOT pause commands.
+
+**Concepts:** `T:`, `A:`, `C:`, `P:` (pause), `WHILE/WEND`.
+
+---
+
+#### 13. timestables.tc — Times Tables Trainer
+
+A randomised multiplication quiz that uses BASIC loops, `INPUT`, and scoring, with a gold star drawn for high scores.
+
+**Concepts:** `FOR/NEXT`, `INPUT`, `RANDOMIZE`, `IF/THEN`, `GOTO`, Logo `STAR`.
+
+---
+
+#### 14. dice.tc — Dice Roller
+
+A dice-rolling game combining BASIC random numbers, PILOT interaction for the game loop, and Logo drawing to display dice on the canvas.
+
+**Concepts:** `RANDOMIZE`, `RND`, `INT()`, `RECT`, `LABEL`, `*labels`, `J:`.
+
+---
+
+#### 15. interactive_drawing.tc — Interactive Drawing
+
+A menu-driven drawing program where the user picks shapes and colours. Demonstrates deep mixing of all three heritages.
+
+**Concepts:** `T:`, `A:`, `M:`, `Y:`, `J:`, `FOR/NEXT`, Logo shapes, `SETCOLOR`.
+
+---
+
+### Turtle Graphics Showcase
+
+#### 16. rainbow.tc — Rainbow Spiral
+
+A colourful spiral that cycles through rainbow colours using `MOD` and `IF/THEN` to select colours on each iteration.
+
+**Concepts:** `FOR/NEXT`, `MOD`, `IF/THEN`, `SETCOLOR`, `FORWARD`, `RIGHT`.
+
+---
+
+#### 17. shapes.tc — Shapes Gallery
+
+A gallery displaying squares, triangles, circles, pentagons, hexagons, and stars at labelled positions. Shows all built-in shape commands.
+
+**Concepts:** `SQUARE`, `TRIANGLE`, `CIRCLE`, `POLYGON`, `STAR`, `LABEL`, `SETXY`.
+
+---
+
+#### 18. flower.tc — Flower Garden
+
+A garden of five flowers drawn using Logo procedures (`TO/END`) with stems and colour variations.
+
+**Concepts:** `TO/END` procedures, `ARC`, `REPEAT`, `SETXY`, `PENUP`/`PENDOWN`, `DOT`.
+
+---
+
+#### 19. kaleidoscope.tc — Kaleidoscope
+
+Multiple layered geometric patterns — rotating squares, triangles, starburst, and orbital circles — creating a kaleidoscope effect.
+
+**Concepts:** Nested `REPEAT`, `HOME`, `PENUP`/`PENDOWN`, `CIRCLE`, `DOT`.
+
+---
+
+#### 20. snowflake.tc — Snowflake Fractal
+
+A Koch snowflake drawn using Logo procedures to approximate fractal geometry.
+
+**Concepts:** `TO/END` procedures, `SETHEADING`, `SETXY`, fractal patterns.
+
+---
+
+#### 21. clock.tc — Clock Face
+
+A detailed analogue clock face with hour markers, minute ticks, and three hands (hour, minute, second) using precise Logo positioning.
+
+**Concepts:** `FOR/NEXT`, `SETHEADING`, `SETXY`, `HOME`, `DOT`, `SETPENSIZE`, `CIRCLE`.
+
+---
+
 ## How to Run Examples
 
 ### From the IDE
@@ -118,7 +272,7 @@ REPEAT 36 [FORWARD 80 RIGHT 170]
 
 2. **Open an example:**
    - **File → Open File...** → navigate to `examples/templecode/`
-   - Or **Program → Load Example** and select a `.tc` file
+   - Or **Program → Load Example** and select from the categorised menu
 
 3. **Run the program:**
    Press **F5** or click **Program → Run Program**
@@ -144,9 +298,31 @@ python3 TimeWarpII.py
 2. **spiral.tc** — Explore Logo turtle graphics
 3. **quiz.tc** — Learn PILOT's interactive commands
 
-### Go Deeper
-4. **guess.tc** — Practice BASIC control flow (`IF/THEN`, `GOTO`, `INPUT`)
-5. **mandelbrot.tc** — Master nested `REPEAT` and multi-color drawing
+### BASIC Fundamentals
+4. **guess.tc** — Variables, `IF/THEN`, `GOTO`, `INPUT`
+5. **calculator.tc** — Arithmetic and user interaction
+6. **fizzbuzz.tc** — Loops and modulo logic
+7. **fibonacci.tc** — Sequences and visualisation
+
+### PILOT Mastery
+8. **science_quiz.tc** — Pattern matching and scoring
+9. **temperature.tc** — Menu navigation with labels and jumps
+10. **adventure.tc** — Branching interactive stories
+
+### Mixing It All Together
+11. **countdown.tc** — PILOT input + BASIC loops + pause
+12. **timestables.tc** — Random quizzes with turtle rewards
+13. **dice.tc** — Randomness + canvas drawing
+14. **interactive_drawing.tc** — Full user-driven drawing app
+
+### Turtle Graphics Art
+15. **rainbow.tc** — Colour cycling spirals
+16. **shapes.tc** — Built-in shape gallery
+17. **flower.tc** — Procedures and organic patterns
+18. **kaleidoscope.tc** — Layered geometric art
+19. **mandelbrot.tc** — Nested repeat patterns
+20. **snowflake.tc** — Fractal geometry
+21. **clock.tc** — Precise positioning and angles
 
 ---
 
@@ -154,9 +330,9 @@ python3 TimeWarpII.py
 
 | Heritage | Key Commands |
 |----------|-------------|
-| **BASIC** | `PRINT`, `LET`, `IF/THEN`, `FOR/NEXT`, `GOTO`, `GOSUB/RETURN`, `INPUT`, `DIM`, `END` |
-| **PILOT** | `T:` (type), `A:` (accept), `M:` (match), `Y:` / `N:` (conditional), `J:` (jump), `E:` (end) |
-| **Logo** | `FORWARD`/`FD`, `BACK`/`BK`, `LEFT`/`LT`, `RIGHT`/`RT`, `PENUP`/`PU`, `PENDOWN`/`PD`, `REPEAT [...]`, `SETCOLOR`, `TO ... END` |
+| **BASIC** | `PRINT`, `LET`, `IF/THEN`, `FOR/NEXT`, `WHILE/WEND`, `GOTO`, `GOSUB/RETURN`, `INPUT`, `DIM`, `END` |
+| **PILOT** | `T:` (type), `A:` (accept), `M:` (match), `Y:` / `N:` (conditional), `J:` (jump), `C:` (compute), `P:` (pause), `E:` (end) |
+| **Logo** | `FORWARD`/`FD`, `BACK`/`BK`, `LEFT`/`LT`, `RIGHT`/`RT`, `PENUP`/`PU`, `PENDOWN`/`PD`, `REPEAT [...]`, `SETCOLOR`, `CIRCLE`, `SQUARE`, `TRIANGLE`, `POLYGON`, `STAR`, `ARC`, `DOT`, `LABEL`, `TO ... END` |
 
 For the full language reference, see [docs/languages/TEMPLECODE_REFERENCE.md](../docs/languages/TEMPLECODE_REFERENCE.md).
 
@@ -164,4 +340,4 @@ For the full language reference, see [docs/languages/TEMPLECODE_REFERENCE.md](..
 
 **Happy coding with TempleCode!** 🚀
 
-© 2025 Honey Badger Universe | Example Programs
+© 2025-2026 Honey Badger Universe | Example Programs

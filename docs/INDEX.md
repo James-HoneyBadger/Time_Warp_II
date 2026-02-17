@@ -10,6 +10,8 @@ Welcome to the Time Warp II comprehensive documentation. Time Warp II is a speci
 
 ### User Documentation
 - **[USER_GUIDE.md](user/USER_GUIDE.md)** - Complete IDE features and usage
+- **[STUDENT_TUTORIAL.md](user/STUDENT_TUTORIAL.md)** - Step-by-step learn-to-code tutorial for students
+- **[INSTRUCTOR_GUIDE.md](user/INSTRUCTOR_GUIDE.md)** - Classroom guide with lesson plans and assessment
 - **[LANGUAGE_TUTORIALS.md](user/LANGUAGE_TUTORIALS.md)** - Learn the TempleCode programming language
 - **[KEYBOARD_SHORTCUTS.md](user/KEYBOARD_SHORTCUTS.md)** - IDE keyboard shortcuts and commands
 - **[THEMES_AND_FONTS.md](user/THEMES_AND_FONTS.md)** - Customization guide
@@ -39,6 +41,12 @@ Welcome to the Time Warp II comprehensive documentation. Time Warp II is a speci
 **Learn to use the IDE**
 → [USER_GUIDE.md](user/USER_GUIDE.md)
 
+**Learn to code (student)**
+→ [STUDENT_TUTORIAL.md](user/STUDENT_TUTORIAL.md)
+
+**Teach with Time Warp II (instructor)**
+→ [INSTRUCTOR_GUIDE.md](user/INSTRUCTOR_GUIDE.md)
+
 **Learn a programming language**
 → [LANGUAGE_TUTORIALS.md](user/LANGUAGE_TUTORIALS.md)
 
@@ -64,15 +72,22 @@ Welcome to the Time Warp II comprehensive documentation. Time Warp II is a speci
 
 ### For Absolute Beginners
 1. Read [QUICK_START.md](QUICK_START.md)
-2. Try running an example in [../examples/](../examples/)
-3. Follow [LANGUAGE_TUTORIALS.md](user/LANGUAGE_TUTORIALS.md) - BASIC section
-4. Use [KEYBOARD_SHORTCUTS.md](user/KEYBOARD_SHORTCUTS.md) as reference
+2. Follow [STUDENT_TUTORIAL.md](user/STUDENT_TUTORIAL.md)
+3. Try running an example in [../examples/](../examples/)
+4. Follow [LANGUAGE_TUTORIALS.md](user/LANGUAGE_TUTORIALS.md) - BASIC section
+5. Use [KEYBOARD_SHORTCUTS.md](user/KEYBOARD_SHORTCUTS.md) as reference
 
 ### For Experienced Programmers
 1. Skim [USER_GUIDE.md](user/USER_GUIDE.md)
 2. Check language reference in [TEMPLECODE_REFERENCE.md](languages/TEMPLECODE_REFERENCE.md)
 3. Review [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)
 4. Explore [examples/](../examples/) for advanced patterns
+
+### For Educators
+1. Read [INSTRUCTOR_GUIDE.md](user/INSTRUCTOR_GUIDE.md)
+2. Review [STUDENT_TUTORIAL.md](user/STUDENT_TUTORIAL.md) — hand to students
+3. Browse lesson plans and example progression
+4. Explore [examples/](../examples/) for classroom demos
 
 ### For IDE Developers
 1. Read [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)
@@ -133,6 +148,8 @@ docs/
 ├── FAQ.md
 ├── user/
 │   ├── USER_GUIDE.md
+│   ├── STUDENT_TUTORIAL.md
+│   ├── INSTRUCTOR_GUIDE.md
 │   ├── LANGUAGE_TUTORIALS.md
 │   ├── KEYBOARD_SHORTCUTS.md
 │   └── THEMES_AND_FONTS.md

@@ -1,0 +1,63 @@
+REM TempleCode Dice Roller
+REM A dice-rolling game mixing BASIC randomness with PILOT interaction
+
+RANDOMIZE TIMER
+
+T:================================
+T:     Dice Roller Game
+T:================================
+T:
+
+*roll
+T:Press Enter to roll two dice (or type 'quit' to exit):
+A:
+M:quit,exit,q
+Y:T:Thanks for playing!
+Y:E:
+
+LET DIE1 = INT(RND * 6) + 1
+LET DIE2 = INT(RND * 6) + 1
+LET TOTAL = DIE1 + DIE2
+
+PRINT ""
+PRINT "  Die 1: "; DIE1
+PRINT "  Die 2: "; DIE2
+PRINT "  Total: "; TOTAL
+PRINT ""
+
+IF TOTAL = 2 THEN PRINT "Snake eyes!"
+IF TOTAL = 7 THEN PRINT "Lucky seven!"
+IF TOTAL = 11 THEN PRINT "Yo-leven!"
+IF TOTAL = 12 THEN PRINT "Boxcars!"
+IF DIE1 = DIE2 THEN PRINT "Doubles!"
+
+REM Draw the dice on the canvas
+CLEARSCREEN
+HIDETURTLE
+
+REM Draw Die 1
+PENUP
+SETXY -80 20
+PENDOWN
+SETCOLOR white
+SETPENSIZE 2
+RECT 60 60
+
+REM Draw Die 2
+PENUP
+SETXY 20 20
+PENDOWN
+RECT 60 60
+
+REM Label
+PENUP
+SETXY -50 -60
+PENDOWN
+SETCOLOR yellow
+LABEL Total:
+PENUP
+SETXY 20 -60
+PENDOWN
+
+PRINT ""
+J:*roll
