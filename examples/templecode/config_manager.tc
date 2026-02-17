@@ -1,0 +1,65 @@
+REM ============================================
+REM  Simple JSON Config Manager
+REM  Demonstrates: JSON, Dicts, File I/O,
+REM  Error Handling, Functions
+REM ============================================
+
+REM --- Configuration Functions ---
+SUB LOAD_CONFIG(FILENAME$)
+  TRY
+    READFILE FILENAME$, RAW$
+    JSON PARSE RAW$ INTO CONFIG
+    PRINT "Configuration loaded from "; FILENAME$
+  CATCH ERR
+    PRINT "Could not load config: "; ERR
+    PRINT "Using defaults..."
+    DICT CONFIG = "theme":"dark", "fontSize":"14", "language":"en"
+    SET CONFIG.autoSave = "true"
+    SET CONFIG.maxLines = "1000"
+  END TRY
+END SUB
+
+SUB SAVE_CONFIG(FILENAME$)
+  TRY
+    JSON STRINGIFY CONFIG INTO JSON_STR
+    WRITEFILE FILENAME$, JSON_STR
+    PRINT "Configuration saved to "; FILENAME$
+  CATCH ERR
+    PRINT "Could not save config: "; ERR
+  END TRY
+END SUB
+
+SUB SHOW_CONFIG()
+  PRINT ""
+  PRINT "=== Current Configuration ==="
+  FOREACH KEY, VALUE IN CONFIG
+    PRINTF "  {0} = {1}", KEY, VALUE
+  NEXT KEY
+  PRINT "=============================="
+  PRINT ""
+END SUB
+
+SUB SET_CONFIG(KEY$, VALUE$)
+  SET CONFIG, KEY$, VALUE$
+  PRINTF "Set {0} = {1}", KEY$, VALUE$
+END SUB
+
+REM --- Main Program ---
+PRINT "================================"
+PRINT "  Config Manager"
+PRINT "================================"
+
+CALL LOAD_CONFIG("app_config.json")
+CALL SHOW_CONFIG()
+
+REM Modify some settings
+CALL SET_CONFIG("theme", "light")
+CALL SET_CONFIG("fontSize", "16")
+CALL SET_CONFIG("newFeature", "enabled")
+
+CALL SHOW_CONFIG()
+CALL SAVE_CONFIG("app_config.json")
+
+PRINT ""
+PRINT "Done!"
+END

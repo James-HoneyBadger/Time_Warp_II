@@ -29,7 +29,7 @@ run.bat
 
 ## Prerequisites
 
-- **Python 3.9 or higher** (required)
+- **Python 3.10 or higher** (required)
 - **tkinter** (usually included with Python)
 - Internet connection (for initial dependency installation)
 
@@ -39,7 +39,7 @@ run.bat
 python3 --version
 ```
 
-If you have Python 3.8 or lower, you'll need to upgrade. Visit [python.org](https://www.python.org) to download Python 3.9+.
+If you have Python 3.9 or lower, you'll need to upgrade. Visit [python.org](https://www.python.org) to download Python 3.10+.
 
 ---
 
@@ -65,13 +65,13 @@ python3 run.py --help
 
 **Advantages:**
 - Works on Windows, macOS, and Linux
-- Automatic Python 3.9+ checking
+- Automatic Python 3.10+ checking
 - Clear colored output with progress indicators
 - Handles both tkinter checks and optional dependencies
 - Self-contained — no external shell required
 
 **What it does:**
-1. Verifies Python 3.9+ is installed
+2. Verifies Python 3.10+ is installed
 2. Creates `venv/` directory with isolated Python environment
 3. Upgrades pip, setuptools, and wheel
 4. Installs all dependencies from `requirements.txt`
@@ -149,7 +149,7 @@ python3 TimeWarpII.py
 **Error:** `python3: command not found` or `'python' is not recognized`
 
 **Solution:** 
-- Ensure Python 3.9+ is installed and in your PATH
+- Ensure Python 3.10+ is installed and in your PATH
 - Try using `python` instead of `python3` on Windows
 - On Windows, add Python to PATH during installation
 
@@ -281,7 +281,7 @@ Time Warp II requires:
 - `tkinter` — GUI framework (usually bundled with Python)
 
 **Recommended:**
-- `pygame>=2.0.0` — Multimedia and graphics
+- `pygame-ce>=2.0.0` — Multimedia and graphics (community edition)
 - `pygments>=2.15.0` — Syntax highlighting
 - `Pillow>=8.0.0` — Image processing
 

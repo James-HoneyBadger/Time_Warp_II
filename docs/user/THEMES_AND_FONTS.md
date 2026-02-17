@@ -232,4 +232,4 @@ To reset appearance to defaults, delete this file and restart the IDE.
 ---
 
 *Time Warp II — Themes & Fonts Guide*
-*Copyright © 2025 Honey Badger Universe*
+*Copyright © 2025–2026 Honey Badger Universe*

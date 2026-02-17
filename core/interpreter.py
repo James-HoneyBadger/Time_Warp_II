@@ -29,7 +29,7 @@ Image = None
 ImageTk = None
 
 try:
-    from PIL import Image as PILImage, ImageTk as PILImageTk
+    from PIL import Image as PILImage, ImageTk as PILImageTk  # type: ignore[attr-defined]
     Image = PILImage
     ImageTk = PILImageTk
     PIL_AVAILABLE = True
@@ -58,23 +58,61 @@ class _HeadlessCanvas:
         return item_id
 
     # Canvas drawing methods
-    def create_line(self, *a, **kw):      return self._record("line", a, kw)
-    def create_oval(self, *a, **kw):      return self._record("oval", a, kw)
-    def create_rectangle(self, *a, **kw): return self._record("rectangle", a, kw)
-    def create_polygon(self, *a, **kw):   return self._record("polygon", a, kw)
-    def create_text(self, *a, **kw):      return self._record("text", a, kw)
-    def create_image(self, *a, **kw):     return self._record("image", a, kw)
-    def create_arc(self, *a, **kw):       return self._record("arc", a, kw)
+    def create_line(self, *a, **kw):
+        """Record a line draw."""
+        return self._record("line", a, kw)
+
+    def create_oval(self, *a, **kw):
+        """Record an oval draw."""
+        return self._record("oval", a, kw)
+
+    def create_rectangle(self, *a, **kw):
+        """Record a rectangle draw."""
+        return self._record("rectangle", a, kw)
+
+    def create_polygon(self, *a, **kw):
+        """Record a polygon draw."""
+        return self._record("polygon", a, kw)
+
+    def create_text(self, *a, **kw):
+        """Record a text draw."""
+        return self._record("text", a, kw)
+
+    def create_image(self, *a, **kw):
+        """Record an image draw."""
+        return self._record("image", a, kw)
+
+    def create_arc(self, *a, **kw):
+        """Record an arc draw."""
+        return self._record("arc", a, kw)
 
     # Geometry / lifecycle stubs
-    def bbox(self, *a, **kw):    return (0, 0, 0, 0)
-    def configure(self, **kw):   pass
-    def config(self, **kw):      pass
-    def winfo_width(self):       return 600
-    def winfo_height(self):      return 400
-    def update_idletasks(self):  pass
-    def update(self):            pass
-    def delete(self, *a, **kw):  pass
+    def bbox(self, *a, **kw):
+        """Return a dummy bounding box."""
+        return (0, 0, 0, 0)
+
+    def configure(self, **kw):
+        """No-op configure stub."""
+
+    def config(self, **kw):
+        """No-op config stub."""
+
+    def winfo_width(self):
+        """Return default canvas width."""
+        return 600
+
+    def winfo_height(self):
+        """Return default canvas height."""
+        return 400
+
+    def update_idletasks(self):
+        """No-op update_idletasks stub."""
+
+    def update(self):
+        """No-op update stub."""
+
+    def delete(self, *a, **kw):
+        """No-op delete stub."""
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +137,11 @@ class TempleCodeInterpreter:
     #  Initialisation
     # ------------------------------------------------------------------
 
-    def __init__(self, output_widget=None):
+    def __init__(self, output_widget=None) -> None:
         self.output_widget = output_widget
+
+        # Pre-filled input buffer (used by tests / queued input)
+        self.input_buffer: list = []
 
         # Program execution state
         self.variables: dict = {}
@@ -148,6 +189,34 @@ class TempleCodeInterpreter:
         self._data_values: list = []
         self._data_pos: int = 0
 
+        # --- Modern language extensions ---
+        # SUB / FUNCTION definitions: name -> {params, body_start_line, body_end_line}
+        self.sub_definitions: dict = {}
+        self.function_definitions: dict = {}
+        self.call_stack: list = []          # for SUB/FUNCTION return
+        self.return_value = None            # FUNCTION return value
+
+        # Lists and Dictionaries
+        self.lists: dict = {}              # name -> list
+        self.dicts: dict = {}              # name -> dict
+
+        # File handles
+        self.file_handles: dict = {}       # handle_num -> file object
+
+        # Error handling
+        self.try_stack: list = []           # TRY/CATCH nesting
+        self.last_error: str = ""           # last caught error message
+
+        # CONST values (immutable variables)
+        self.constants: set = set()
+
+        # Module import tracking
+        self.imported_modules: set = set()
+
+        # Watch expressions & profiler (set up by IDE or CLI)
+        self.watch_manager = None   # core.features.ide_features.WatchManager
+        self.profiler = None        # core.features.ide_features.Profiler
+
         # Language executor
         self.templecode_executor = TempleCodeExecutor(self)
         self.current_language_mode = "templecode"
@@ -158,6 +227,7 @@ class TempleCodeInterpreter:
     # ------------------------------------------------------------------
 
     def set_language_mode(self, _mode):
+        """Set the current language mode (always TempleCode)."""
         self.current_language_mode = "templecode"
         self.current_language = "templecode"
 
@@ -283,10 +353,12 @@ class TempleCodeInterpreter:
 
     @property
     def turtle_angle(self):
+        """Return the current turtle heading in degrees."""
         return self.turtle_graphics["heading"] if self.turtle_graphics else 0.0
 
     @turtle_angle.setter
     def turtle_angle(self, angle):
+        """Set the turtle heading to *angle* degrees."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         self.turtle_graphics["heading"] = float(angle) % 360
@@ -294,18 +366,21 @@ class TempleCodeInterpreter:
         self.update_turtle_display()
 
     def turtle_home(self):
+        """Reset turtle position to origin and heading to 0."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         self.turtle_graphics.update({"x": 0.0, "y": 0.0, "heading": 0.0})
         self.update_turtle_display()
 
     def turtle_set_color(self, color):
+        """Set the turtle pen colour."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         self.turtle_graphics["pen_color"] = str(color)
         self.update_turtle_display()
 
     def turtle_set_pen_size(self, size):
+        """Set the turtle pen width in pixels."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         try:
@@ -357,6 +432,7 @@ class TempleCodeInterpreter:
         )
 
     def clear_turtle_screen(self):
+        """Erase all turtle drawings from the canvas."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         canvas = self.turtle_graphics.get("canvas")
@@ -372,6 +448,7 @@ class TempleCodeInterpreter:
             self.update_turtle_display()
 
     def turtle_circle(self, radius):
+        """Draw a circle with the given radius at the turtle position."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         canvas = self.turtle_graphics.get("canvas")
@@ -386,6 +463,7 @@ class TempleCodeInterpreter:
         self.turtle_graphics["lines"].append(cid)
 
     def turtle_dot(self, size):
+        """Draw a filled dot of the given size at the turtle position."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         canvas = self.turtle_graphics.get("canvas")
@@ -401,6 +479,7 @@ class TempleCodeInterpreter:
         self.turtle_graphics["lines"].append(cid)
 
     def turtle_rect(self, width, height, filled=False):
+        """Draw a rectangle of given dimensions at the turtle position."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         canvas = self.turtle_graphics.get("canvas")
@@ -416,6 +495,7 @@ class TempleCodeInterpreter:
         self.turtle_graphics["lines"].append(rid)
 
     def turtle_text(self, text, size=12):
+        """Draw text at the turtle position."""
         if not self.turtle_graphics:
             self.init_turtle_graphics()
         canvas = self.turtle_graphics.get("canvas")
@@ -452,11 +532,31 @@ class TempleCodeInterpreter:
         self._data_pos = 0
         self._program_start_time = 0.0
 
+        # Modern extensions
+        self.sub_definitions = {}
+        self.function_definitions = {}
+        self.call_stack = []
+        self.return_value = None
+        self.lists = {}
+        self.dicts = {}
+        # Close any open file handles
+        for fh in self.file_handles.values():
+            try:
+                fh.close()
+            except Exception:
+                pass
+        self.file_handles = {}
+        self.try_stack = []
+        self.last_error = ""
+        self.constants = set()
+        self.imported_modules = set()
+
     # ==================================================================
     #  Output Helpers
     # ==================================================================
 
     def log_output(self, text, end="\n"):
+        """Write text to the output widget or stdout."""
         if self.output_widget:
             try:
                 self.output_widget.insert(tk.END, str(text) + end)
@@ -467,6 +567,7 @@ class TempleCodeInterpreter:
             print(text, end=end)
 
     def log_error(self, error_msg, line_num=None):
+        """Log an error message and add it to the error history."""
         fmt = f"❌ ERROR (Line {line_num}): {error_msg}" if line_num else f"❌ ERROR: {error_msg}"
         self.error_history.append({
             'message': error_msg, 'line': line_num, 'timestamp': self.get_current_time()
@@ -474,6 +575,7 @@ class TempleCodeInterpreter:
         self.log_output(fmt)
 
     def debug_output(self, text):
+        """Write text to output only when debug mode is active."""
         if self.debug_mode:
             self.log_output(text)
 
@@ -533,7 +635,7 @@ class TempleCodeInterpreter:
     #  Expression Evaluation
     # ==================================================================
 
-    def evaluate_expression(self, expr):
+    def evaluate_expression(self, expr):  # noqa: C901
         """Safely evaluate a mathematical / string expression with variables."""
         # Replace *VAR* interpolation
         for var_name, var_value in self.variables.items():
@@ -714,11 +816,13 @@ class TempleCodeInterpreter:
     # ==================================================================
 
     def get_input(self, prompt=""):
+        """Shorthand for get_user_input."""
         return self.get_user_input(prompt)
 
     def get_user_input(self, prompt=""):
+        """Prompt the user for input via buffer, GUI, or terminal."""
         # 1. Check pre-filled buffer (from tests or queued input)
-        if hasattr(self, 'input_buffer') and self.input_buffer:
+        if self.input_buffer:
             value = self.input_buffer.pop(0)
             self.log_output(f">> {value}")
             return value
@@ -785,6 +889,20 @@ class TempleCodeInterpreter:
             self.debug_output(f"Executing: {command}")
             return self.templecode_executor.execute_command(command)
         except Exception as e:
+            # If inside a TRY block, jump to CATCH instead of crashing
+            if self.try_stack:
+                frame = self.try_stack[-1]
+                catch_line = frame.get("catch_line")
+                if catch_line:
+                    self.last_error = str(e)
+                    self.variables["ERROR$"] = str(e)
+                    # Extract variable from CATCH line
+                    _, catch_cmd = self.program_lines[catch_line]
+                    cm = re.match(r'CATCH\s+(\w+)', catch_cmd.strip(), re.IGNORECASE)
+                    if cm:
+                        self.variables[cm.group(1).upper()] = str(e)
+                    self.current_line = catch_line
+                    return "jump"
             self.log_error(f"Execution error in line {line_num or self.current_line}: {e}", line_num)
             return "error"
 
@@ -836,7 +954,7 @@ class TempleCodeInterpreter:
 
         return True
 
-    def run_program(self, program_text, language=None):
+    def run_program(self, program_text, language=None):  # noqa: C901
         """Execute a TempleCode program from source text."""
         self.current_language = "templecode"
         self.current_language_mode = "templecode"
@@ -855,6 +973,10 @@ class TempleCodeInterpreter:
         max_iterations = 100_000
         iterations = 0
 
+        # Reset profiler if attached
+        if self.profiler and self.profiler.enabled:
+            self.profiler.reset()
+
         try:
             while (self.current_line < len(self.program_lines)
                    and self.running
@@ -863,6 +985,10 @@ class TempleCodeInterpreter:
 
                 if self.debug_mode and self.current_line in self.breakpoints:
                     self.log_output(f"🔍 DEBUG: Breakpoint hit at line {self.current_line + 1}")
+                    # Show watch expressions at breakpoint
+                    if self.watch_manager and self.watch_manager.expressions:
+                        self.log_output("👁  Watches:")
+                        self.log_output(self.watch_manager.format_report(self))
                     break
 
                 _ln, command = self.program_lines[self.current_line]
@@ -875,9 +1001,16 @@ class TempleCodeInterpreter:
                         f"Executing line {self.current_line + 1}: {command[:50]}"
                     )
 
+                # Profiler: begin line
+                if self.profiler and self.profiler.enabled:
+                    self.profiler.begin_line(self.current_line + 1, command.strip())
+
                 try:
                     result = self.execute_line(command)
                 except Exception as e:
+                    # Profiler: end line even on error
+                    if self.profiler and self.profiler.enabled:
+                        self.profiler.end_line(self.current_line + 1)
                     self.log_error(
                         f"Unexpected error at line {self.current_line + 1}: {e}",
                         self.current_line + 1,
@@ -887,8 +1020,14 @@ class TempleCodeInterpreter:
                     self.current_line += 1
                     continue
 
+                # Profiler: end line
+                if self.profiler and self.profiler.enabled:
+                    self.profiler.end_line(self.current_line + 1)
+
                 if result == "end":
                     break
+                if result == "return":
+                    break  # SUB/FUNCTION return
                 if result == "jump":
                     continue
                 if isinstance(result, str) and result.startswith("jump:"):
@@ -931,6 +1070,9 @@ class TempleCodeInterpreter:
             )
         finally:
             self.running = False
+            # Show profiler report if active
+            if self.profiler and self.profiler.enabled and self.profiler.get_stats():
+                self.log_output("\n" + self.profiler.format_report())
             if self.error_history:
                 self.log_output(f"📊 Execution completed with {len(self.error_history)} error(s)")
             else:
@@ -960,15 +1102,19 @@ class TempleCodeInterpreter:
         return True
 
     def get_current_time(self):
+        """Return the current wall-clock time."""
         return time.time()
 
     def stop_program(self):
+        """Stop the currently running program."""
         self.running = False
 
     def set_debug_mode(self, enabled):
+        """Enable or disable debug mode."""
         self.debug_mode = enabled
 
     def toggle_breakpoint(self, line_number):
+        """Toggle a breakpoint on the given line number."""
         self.breakpoints.symmetric_difference_update({line_number})
 
     # ==================================================================
@@ -1039,6 +1185,7 @@ class TempleCodeInterpreter:
 # ---------------------------------------------------------------------------
 
 def create_demo_program():
+    """Return a demo TempleCode program for standalone testing."""
     return """L:START
 T:Welcome to TempleCode Interpreter Demo!
 A:NAME

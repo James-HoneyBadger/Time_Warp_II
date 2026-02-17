@@ -18,15 +18,11 @@ Welcome to the Time Warp II comprehensive documentation. Time Warp II is a speci
 
 ### Developer Documentation
 - **[TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)** - Architecture and implementation details
-- **[API_REFERENCE.md](dev/API_REFERENCE.md)** - Python API for extending Time Warp II
-- **[LANGUAGE_IMPLEMENTATIONS.md](dev/LANGUAGE_IMPLEMENTATIONS.md)** - How each language is implemented
 
 ### Language Guide
 - **[TEMPLECODE_REFERENCE.md](languages/TEMPLECODE_REFERENCE.md)** - Complete TempleCode language reference (BASIC + PILOT + Logo fusion)
 
 ### Project Information
-- **[../PROJECT_STATUS.md](../PROJECT_STATUS.md)** - Project status and feature completeness
-- **[../INCOMPLETE_FEATURES.md](../INCOMPLETE_FEATURES.md)** - Known limitations and incomplete features
 - **[../examples/README.md](../examples/README.md)** - Example programs and code samples
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 - **[FAQ.md](FAQ.md)** - Frequently asked questions
@@ -57,7 +53,7 @@ Welcome to the Time Warp II comprehensive documentation. Time Warp II is a speci
 → [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)
 
 **Extend or modify the IDE**
-→ [API_REFERENCE.md](dev/API_REFERENCE.md)
+→ [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)
 
 **Troubleshoot a problem**
 → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
@@ -91,9 +87,9 @@ Welcome to the Time Warp II comprehensive documentation. Time Warp II is a speci
 
 ### For IDE Developers
 1. Read [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)
-2. Study [API_REFERENCE.md](dev/API_REFERENCE.md)
-3. Review [LANGUAGE_IMPLEMENTATIONS.md](dev/LANGUAGE_IMPLEMENTATIONS.md)
-4. Check source code in [core/](../core/) directory
+2. Review extension points and architecture docs
+3. Check source code in [core/](../core/) directory
+4. Run tests with `python scripts/run_tests.py`
 
 ## 🎯 Learning Paths
 
@@ -125,17 +121,13 @@ Advanced examples in examples/
 
 ### Path 3: IDE Developer (Advanced)
 ```
-PROJECT_STATUS.md
-  ↓
 TECHNICAL_REFERENCE.md
-  ↓
-API_REFERENCE.md
-  ↓
-LANGUAGE_IMPLEMENTATIONS.md
   ↓
 Review core/interpreter.py
   ↓
-Study individual language implementations
+Study core/languages/templecode.py
+  ↓
+Extension points in TECHNICAL_REFERENCE
 ```
 
 ## 📋 File Organization
@@ -154,9 +146,7 @@ docs/
 │   ├── KEYBOARD_SHORTCUTS.md
 │   └── THEMES_AND_FONTS.md
 ├── dev/
-│   ├── TECHNICAL_REFERENCE.md
-│   ├── API_REFERENCE.md
-│   └── LANGUAGE_IMPLEMENTATIONS.md
+│   └── TECHNICAL_REFERENCE.md
 └── languages/
     └── TEMPLECODE_REFERENCE.md
 ```
@@ -174,7 +164,7 @@ docs/
 2. **Something not working?** → See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 3. **Want to learn the language?** → See [TEMPLECODE_REFERENCE.md](languages/TEMPLECODE_REFERENCE.md)
 4. **Need IDE features?** → Read [USER_GUIDE.md](user/USER_GUIDE.md)
-5. **Want to extend?** → Study [dev/API_REFERENCE.md](dev/API_REFERENCE.md)
+5. **Want to extend?** → Study [dev/TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)
 
 ## 📞 Support Resources
 
@@ -186,13 +176,13 @@ docs/
 ## 📝 License & Attribution
 
 Time Warp II - TempleCode Language IDE  
-Copyright © 2025 Honey Badger Universe
+Copyright © 2025–2026 Honey Badger Universe
 
 See [../License.md](../License.md) for full license information.
 
 ---
 
-**Last Updated:** December 30, 2025  
-**Version:** 1.0 Stable
+**Last Updated:** February 2026  
+**Version:** 1.3.0
 
 **Start with [QUICK_START.md](QUICK_START.md) →**

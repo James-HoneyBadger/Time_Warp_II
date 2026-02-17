@@ -127,7 +127,7 @@ All Time Warp II documentation follows these principles:
 2. **Examples Included** - Show, don't just tell
 3. **Progressive Difficulty** - Start simple, build up
 4. **Cross-Referenced** - Link to related docs
-5. **Up-to-Date** - Matches current version (1.0.0)
+5. **Up-to-Date** - Matches current version (1.3.0)
 
 ---
 

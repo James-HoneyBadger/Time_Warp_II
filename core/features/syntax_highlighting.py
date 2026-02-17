@@ -12,12 +12,10 @@ import re
 from typing import Dict, Tuple, Optional
 
 try:
-    from pygments import highlight
     from pygments.lexers import (
         TextLexer
     )
-    from pygments.lexer import RegexLexer, bygroups
-    from pygments.formatters import RawTokenFormatter
+    from pygments.lexer import RegexLexer
     from pygments.token import Token
     PYGMENTS_AVAILABLE = True
     print("✅ Pygments loaded successfully - syntax highlighting enabled")
@@ -54,31 +52,66 @@ if PYGMENTS_AVAILABLE:
                 (r'"[^"]*"', Token.Literal.String),
 
                 # BASIC keywords
-                (r'(?i)\b(PRINT|LET|IF|THEN|ELSE|FOR|TO|STEP|NEXT|GOTO|GOSUB|RETURN|'
-                 r'END|DIM|INPUT|READ|DATA|RESTORE|ON|STOP|DEF|FN|RANDOMIZE|TIMER|'
-                 r'WHILE|WEND|DO|LOOP|EXIT|SUB|FUNCTION|SELECT|CASE|AND|OR|NOT)\b',
+                (r'(?i)\b(PRINT|LET|IF|THEN|ELSE|ELSEIF|ENDIF|FOR|TO|STEP|NEXT|'
+                 r'GOTO|GOSUB|RETURN|END|DIM|INPUT|READ|DATA|RESTORE|ON|STOP|'
+                 r'DEF|FN|RANDOMIZE|TIMER|WHILE|WEND|DO|LOOP|EXIT|BREAK|'
+                 r'SUB|FUNCTION|CALL|SELECT|CASE|AND|OR|NOT|SWAP|INCR|DECR|'
+                 r'CLS|BEEP|DELAY|SLEEP|SPC|TAB)\b',
                  Token.Keyword),
+
+                # Modern language keywords
+                (r'(?i)\b(LIST|PUSH|POP|SHIFT|UNSHIFT|SORT|REVERSE|SPLICE|'
+                 r'DICT|SET|GET|DELETE|NEW|'
+                 r'OPEN|CLOSE|READLINE|WRITELINE|READFILE|WRITEFILE|APPENDFILE|'
+                 r'TRY|CATCH|THROW|'
+                 r'FOREACH|IN|INTO|FROM|AS|'
+                 r'CONST|TYPEOF|ASSERT|'
+                 r'IMPORT|PRINTF|'
+                 r'JSON|PARSE|STRINGIFY|'
+                 r'REGEX|MATCH|REPLACE|FIND|SPLIT|WITH|'
+                 r'ENUM|STRUCT|LAMBDA|'
+                 r'MAP|FILTER|REDUCE)\b',
+                 Token.Keyword.Reserved),
 
                 # Logo keywords
                 (r'(?i)\b(FORWARD|FD|BACK|BK|LEFT|LT|RIGHT|RT|PENUP|PU|PENDOWN|PD|'
-                 r'REPEAT|SETCOLOR|SETPENCOLOR|SETPENSIZE|HOME|CLEARSCREEN|CS|'
-                 r'HIDETURTLE|HT|SHOWTURTLE|ST|CIRCLE|ARC|SETXY|SETX|SETY|'
+                 r'REPEAT|SETCOLOR|SETCOLOUR|SETPENCOLOR|SETPC|SETPENSIZE|SETWIDTH|'
+                 r'HOME|CLEARSCREEN|CS|CLEAN|'
+                 r'HIDETURTLE|HT|SHOWTURTLE|ST|CIRCLE|ARC|DOT|'
+                 r'SETXY|SETPOS|SETX|SETY|SETFILLCOLOR|SETFC|'
+                 r'SETBACKGROUND|SETBG|SETSCREENCOLOR|SETSCREENCOLOUR|'
                  r'HEADING|SETHEADING|SETH|XCOR|YCOR|TOWARDS|MAKE|'
+                 r'SQUARE|TRIANGLE|POLYGON|STAR|RECT|RECTANGLE|FILL|FILLED|'
+                 r'LABEL|STAMP|TRACE|NOTRACE|WRAP|WINDOW|FENCE|'
                  r'TO|END)\b',
                  Token.Keyword),
 
-                # Built-in functions
-                (r'(?i)\b(ABS|INT|SQR|SIN|COS|TAN|ATN|LOG|EXP|RND|SGN|'
+                # Built-in functions (classic)
+                (r'(?i)\b(ABS|INT|SQR|SIN|COS|TAN|ATN|ATAN|LOG|EXP|RND|SGN|'
                  r'LEN|LEFT\$|RIGHT\$|MID\$|CHR\$|ASC|VAL|STR\$|'
-                 r'UCASE\$|LCASE\$|INSTR|TAB|SPC)\b',
+                 r'UCASE\$|LCASE\$|INSTR|'
+                 r'CEIL|FIX|EXP2|EXP10|LOG2|LOG10|BIN|OCT|HEX|TYPE)\b',
                  Token.Name.Function),
+
+                # Modern built-in functions
+                (r'(?i)\b(ROUND|FLOOR|POWER|CLAMP|LERP|RANDOM|'
+                 r'TRIM\$?|REPLACE\$?|STARTSWITH|ENDSWITH|CONTAINS|'
+                 r'REPEAT\$|FORMAT\$|'
+                 r'ISNUMBER|ISSTRING|TONUM|TOSTR|TOBOOL|'
+                 r'LENGTH|KEYS|VALUES|HASKEY|INDEXOF|SLICE|JOIN|'
+                 r'FILEEXISTS|RESULT|ERROR\$)\b',
+                 Token.Name.Function),
+
+                # Constants
+                (r'(?i)\b(PI|TAU|TRUE|FALSE|NULL|INF)\b',
+                 Token.Name.Constant),
 
                 # Numbers
                 (r'\b\d+(\.\d+)?\b', Token.Literal.Number),
 
                 # Operators
                 (r'[+\-*/^=<>]+', Token.Operator),
-                (r'[(),;\[\]]', Token.Punctuation),
+                (r'[(),;\[\]{}:]', Token.Punctuation),
 
                 # Variable names
                 (r'[A-Za-z_]\w*\$?', Token.Name.Variable),
@@ -286,7 +319,6 @@ class SyntaxHighlightingText(tk.Frame):
 
         try:
             # Get tokens from pygments
-            formatter = RawTokenFormatter()
             tokens = self.lexer.get_tokens(current_text)
 
             # Apply highlighting
@@ -299,9 +331,9 @@ class SyntaxHighlightingText(tk.Frame):
                 lines = value.count('\n')
                 if lines > 0:
                     last_line_chars = len(value.split('\n')[-1])
-                    end_pos = f"{int(pos.split('.')[0]) + lines}.{last_line_chars}"
+                    end_pos = f"{int(pos.split('.', maxsplit=1)[0]) + lines}.{last_line_chars}"
                 else:
-                    end_pos = f"{pos.split('.')[0]}.{int(pos.split('.')[1]) + len(value)}"
+                    end_pos = f"{pos.split('.', maxsplit=1)[0]}.{int(pos.split('.', maxsplit=1)[1]) + len(value)}"
 
                 # Map token type to tag
                 tag = self._get_tag_for_token(token_type)
@@ -369,12 +401,12 @@ class SyntaxHighlightingText(tk.Frame):
 
         # Get text widget dimensions
         text_widget = self.text
-        first_visible_line = int(text_widget.index('@0,0').split('.')[0])
-        last_visible_line = int(text_widget.index('@0,10000').split('.')[0])
+        first_visible_line = int(text_widget.index('@0,0').split('.', maxsplit=1)[0])
+        last_visible_line = int(text_widget.index('@0,10000').split('.', maxsplit=1)[0])
 
         # Get theme colors
-        theme_colors = self._get_theme_colors()
-        bg_color = {'dark': '#1e1e1e', 'light': '#f0f0f0', 'monokai': '#272822'}.get(self.theme, '#1e1e1e')
+        colors = self._get_theme_colors()
+        bg_color = colors.get('line_number_bg', {'dark': '#1e1e1e', 'light': '#f0f0f0', 'monokai': '#272822'}.get(self.theme, '#1e1e1e'))
         fg_color = {'dark': '#858585', 'light': '#237893', 'monokai': '#90908a'}.get(self.theme, '#858585')
 
         self.line_numbers.config(bg=bg_color)
@@ -404,38 +436,38 @@ class SyntaxHighlightingText(tk.Frame):
         """Set the font for the text widget."""
         self.text.config(font=font_tuple)
 
-    def find_text(self, search_term: str, start_pos: str = '1.0', case_sensitive: bool = False, 
+    def find_text(self, search_term: str, start_pos: str = '1.0', case_sensitive: bool = False,
                   whole_word: bool = False, regex: bool = False) -> Optional[Tuple[str, str]]:
         """
         Find the next occurrence of search_term starting from start_pos.
-        
+
         Args:
             search_term: Text to search for
             start_pos: Starting position (tkinter text index)
             case_sensitive: Whether search is case sensitive
             whole_word: Whether to match whole words only
             regex: Whether search_term is a regex pattern
-            
+
         Returns:
             Tuple of (start_index, end_index) if found, None otherwise
         """
         if not search_term:
             return None
-            
+
         text_content = self.text.get('1.0', tk.END)
-        
+
         # Get the character position from start_pos
         start_line, start_col = map(int, start_pos.split('.'))
         start_char = 0
-        
+
         # Calculate character offset for start_pos
         lines = text_content.split('\n')
         for i in range(min(start_line - 1, len(lines))):
             start_char += len(lines[i]) + 1  # +1 for newline
         start_char += start_col
-        
+
         search_text = text_content[start_char:]
-        
+
         if regex:
             import re as re_module
             flags = 0 if case_sensitive else re_module.IGNORECASE
@@ -449,7 +481,7 @@ class SyntaxHighlightingText(tk.Frame):
             if not case_sensitive:
                 search_text = search_text.lower()
                 search_term = search_term.lower()
-            
+
             if whole_word:
                 # Simple whole word matching
                 import re as re_module
@@ -466,15 +498,15 @@ class SyntaxHighlightingText(tk.Frame):
                     match_start = start_char + pos
                     match_end = start_char + pos + len(search_term)
                     return self._char_to_index(match_start), self._char_to_index(match_end)
-        
+
         return None
 
     def replace_text(self, search_term: str, replace_term: str, start_pos: str = '1.0',
-                     case_sensitive: bool = False, whole_word: bool = False, 
+                     case_sensitive: bool = False, whole_word: bool = False,
                      regex: bool = False) -> bool:
         """
         Replace the next occurrence of search_term with replace_term.
-        
+
         Args:
             search_term: Text to search for
             replace_term: Text to replace with
@@ -482,7 +514,7 @@ class SyntaxHighlightingText(tk.Frame):
             case_sensitive: Whether search is case sensitive
             whole_word: Whether to match whole words only
             regex: Whether search_term is a regex pattern
-            
+
         Returns:
             True if replacement was made, False otherwise
         """
@@ -500,62 +532,61 @@ class SyntaxHighlightingText(tk.Frame):
                     whole_word: bool = False, regex: bool = False) -> int:
         """
         Replace all occurrences of search_term with replace_term.
-        
+
         Args:
             search_term: Text to search for
             replace_term: Text to replace with
             case_sensitive: Whether search is case sensitive
             whole_word: Whether to match whole words only
             regex: Whether search_term is a regex pattern
-            
+
         Returns:
             Number of replacements made
         """
         count = 0
         start_pos = '1.0'
-        
+
         while True:
             match = self.find_text(search_term, start_pos, case_sensitive, whole_word, regex)
             if not match:
                 break
-                
+
             start_idx, end_idx = match
             self.text.delete(start_idx, end_idx)
             self.text.insert(start_idx, replace_term)
             count += 1
-            
+
             # Move start_pos to after the replacement
             start_pos = self.text.index(f"{start_idx}+{len(replace_term)}c")
-        
+
         if count > 0:
             self.text.see('1.0')
             self._highlight_text()  # Re-highlight after replacements
-        
+
         return count
 
     def highlight_search_results(self, search_term: str, case_sensitive: bool = False,
-                               whole_word: bool = False, regex: bool = False):
+                                 whole_word: bool = False, regex: bool = False):
         """
         Highlight all search results with a special tag.
         """
         # Remove existing search highlights
         self.text.tag_remove('search_highlight', '1.0', tk.END)
-        
+
         if not search_term:
             return
-            
+
         start_pos = '1.0'
         while True:
             match = self.find_text(search_term, start_pos, case_sensitive, whole_word, regex)
             if not match:
                 break
-                
+
             start_idx, end_idx = match
             self.text.tag_add('search_highlight', start_idx, end_idx)
             start_pos = end_idx
-        
+
         # Configure the search highlight tag
-        theme_colors = self._get_theme_colors()
         bg_color = {'dark': '#264f78', 'light': '#a6d2ff', 'monokai': '#49483e'}.get(self.theme, '#264f78')
         self.text.tag_configure('search_highlight', background=bg_color)
 
@@ -567,7 +598,7 @@ class SyntaxHighlightingText(tk.Frame):
         """Convert character position to tkinter text index."""
         text_content = self.text.get('1.0', tk.END)
         lines = text_content.split('\n')
-        
+
         current_char = 0
         for line_num, line in enumerate(lines, 1):
             line_len = len(line) + 1  # +1 for newline
@@ -575,7 +606,7 @@ class SyntaxHighlightingText(tk.Frame):
                 col = char_pos - current_char
                 return f"{line_num}.{col}"
             current_char += line_len
-        
+
         # If we get here, position is at or beyond end
         return f"{len(lines)}.{len(lines[-1])}"
 
@@ -638,8 +669,8 @@ class LineNumberedText(tk.Frame):
 
         # Get text widget dimensions
         text_widget = self.text
-        first_visible_line = int(text_widget.index('@0,0').split('.')[0])
-        last_visible_line = int(text_widget.index('@0,10000').split('.')[0])
+        first_visible_line = int(text_widget.index('@0,0').split('.', maxsplit=1)[0])
+        last_visible_line = int(text_widget.index('@0,10000').split('.', maxsplit=1)[0])
 
         # Theme-aware colors
         bg_color = "#1e1e1e"

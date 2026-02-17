@@ -1,0 +1,94 @@
+REM ============================================
+REM  Data Processing Pipeline
+REM  Demonstrates: Functions, Lambdas, Lists,
+REM  Map/Filter/Reduce, Dicts, Formatted Output
+REM ============================================
+
+REM --- Define helper functions ---
+FUNCTION SQUARE(X)
+  RETURN X * X
+END FUNCTION
+
+FUNCTION AVERAGE(LST)
+  LET SUM = 0
+  LET CNT = 0
+  FOREACH V IN LST
+    LET SUM = SUM + V
+    INCR CNT
+  NEXT V
+  IF CNT = 0 THEN RETURN 0
+  RETURN SUM / CNT
+END FUNCTION
+
+LAMBDA DOUBLE(X) = X * 2
+LAMBDA IS_POSITIVE(X) = X > 0
+
+REM --- Build a dataset ---
+LIST DATA = 15, -3, 42, 7, -12, 28, 0, 33, -5, 19
+
+PRINT "=== Data Processing Pipeline ==="
+PRINT ""
+PRINT "Original data:"
+FOREACH V IN DATA
+  PRINT V; " ";
+NEXT V
+PRINT ""
+
+REM --- Filter: keep positive numbers ---
+FILTER IS_POSITIVE ON DATA INTO POSITIVES
+PRINT ""
+PRINT "Positive values:"
+FOREACH V IN POSITIVES
+  PRINT V; " ";
+NEXT V
+PRINT ""
+
+REM --- Map: double the positive values ---
+MAP DOUBLE ON POSITIVES INTO DOUBLED
+PRINT ""
+PRINT "Doubled positives:"
+FOREACH V IN DOUBLED
+  PRINT V; " ";
+NEXT V
+PRINT ""
+
+REM --- Reduce: sum all doubled values ---
+LAMBDA ADD(A, B) = A + B
+REDUCE ADD ON DOUBLED INTO TOTAL FROM 0
+
+PRINT ""
+PRINT "Sum of doubled positives: "; TOTAL
+
+REM --- Compute statistics ---
+LET AVG = AVERAGE(DATA)
+SORT DATA
+SHIFT DATA, MIN_VAL
+LIST TEMP = MIN_VAL
+LET L = DATA_LENGTH
+REM Get max from sorted list
+FOREACH V IN DATA
+  LET MAX_VAL = V
+NEXT V
+
+PRINT ""
+PRINT "=== Statistics ==="
+PRINTF "Count:   {0}", DATA_LENGTH + 1
+PRINTF "Min:     {0}", MIN_VAL
+PRINTF "Max:     {0}", MAX_VAL
+PRINTF "Average: {0}", AVG
+
+REM --- Store results in a dictionary ---
+DICT RESULTS = "total":TOTAL, "average":AVG
+SET RESULTS.count = DATA_LENGTH + 1
+SET RESULTS.min = MIN_VAL
+SET RESULTS.max = MAX_VAL
+
+PRINT ""
+PRINT "Results stored in DICT RESULTS"
+FOREACH KEY, VALUE IN RESULTS
+  PRINTF "  {0}: {1}", KEY, VALUE
+NEXT KEY
+
+PRINT ""
+PRINT "Pipeline complete!"
+END

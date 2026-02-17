@@ -6,7 +6,7 @@
 Time Warp II is an educational IDE and a special version of **Time Warp Classic** with various enhancements and revisions, designed specifically for the **TempleCode language** — a fusion of BASIC, PILOT, and Logo. Write programs that mix line-numbered BASIC statements, PILOT interactive commands, and Logo turtle graphics — all in a single `.tc` file.
 
 [![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/James-HoneyBadger/Time_Warp_II)
-[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
 ---
@@ -22,7 +22,7 @@ A single unified language drawing from three classic educational languages:
 All three styles can be freely mixed in a single program.
 
 ### Professional IDE Interface
-- **Refined Menu System** — File, Edit, Program, Debug, Test, Preferences, About
+- **Refined Menu System** — File, Edit, View, Program, Debug, Test, Preferences, About, Help
 - **Integrated Editor** — Syntax-aware code editing with undo/redo
 - **Syntax Highlighting** — Real-time syntax coloring for TempleCode
 - **Line Numbers** — Always-visible line numbering for easy navigation
@@ -48,7 +48,7 @@ All three styles can be freely mixed in a single program.
 ## 📦 Installation
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.10 or higher
 - tkinter (usually included with Python)
 - pip package manager
 
@@ -100,27 +100,16 @@ python scripts/run_tests.py --coverage
 #### From Within the Application
 Use the **Test** menu in the IDE:
 - **Run Smoke Test** — Quick functionality check
-- **Run Full Test Suite** — Complete test suite with verbose output
-- **Open Test Directory** — Browse test files
+- **Open Examples Directory** — Browse example files
 
 ### Test Structure
 ```
 tests/
-├── conftest.py          # Shared fixtures and configuration
-├── unit/               # Unit tests for individual components
-│   ├── test_interpreter.py    # Core interpreter tests
-│   ├── test_languages.py      # TempleCode executor tests
-│   └── test_syntax_highlighting.py
-├── integration/        # Integration tests for workflows
-│   └── test_execution.py
-└── language/           # TempleCode language tests
+├── __init__.py              # Test package init
+├── helpers.py               # HeadlessApp fixture, run_tc helper
+├── test_interpreter.py      # Core interpreter tests
+└── test_all_commands.py     # Full TempleCode command coverage
 ```
-
-### Writing Tests
-Tests use pytest with fixtures for common setup:
-- `interpreter` — Fresh interpreter instance
-- `sample_programs` — Example TempleCode programs
-- `root` — Tkinter root window for GUI tests
 
 ---
 
@@ -184,8 +173,13 @@ REPEAT 4 [FORWARD 80 RIGHT 90]
 
 ### User Documentation
 - **[Quick Start Guide](docs/QUICK_START.md)** — Get up and running quickly
+- **[User Guide](docs/user/USER_GUIDE.md)** — Complete IDE features and usage
+- **[Student Tutorial](docs/user/STUDENT_TUTORIAL.md)** — Learn to code step by step
+- **[Instructor Guide](docs/user/INSTRUCTOR_GUIDE.md)** — Teaching with Time Warp II
 - **[Language Tutorials](docs/user/LANGUAGE_TUTORIALS.md)** — Learn the TempleCode language
-- **[Example Programs](examples/README.md)** — Guided tour of example programs
+- **[Keyboard Shortcuts](docs/user/KEYBOARD_SHORTCUTS.md)** — All keyboard shortcuts
+- **[Themes & Fonts](docs/user/THEMES_AND_FONTS.md)** — Customisation guide
+- **[Example Programs](examples/README.md)** — 21 guided example programs
 
 ### Language Reference
 - **[TempleCode Reference](docs/languages/TEMPLECODE_REFERENCE.md)** — Complete language reference
@@ -249,18 +243,22 @@ Time_Warp_II/
 │
 ├── examples/                # Example programs
 │   ├── README.md           # Examples documentation
-│   └── templecode/         # TempleCode examples (.tc files)
-│       ├── hello.tc
-│       ├── spiral.tc
-│       ├── quiz.tc
-│       ├── guess.tc
-│       └── mandelbrot.tc
+│   └── templecode/         # 21 TempleCode examples (.tc files)
+│       ├── hello.tc, spiral.tc, quiz.tc, guess.tc, mandelbrot.tc
+│       ├── calculator.tc, countdown.tc, fizzbuzz.tc, fibonacci.tc
+│       ├── timestables.tc, temperature.tc, dice.tc
+│       ├── science_quiz.tc, adventure.tc, interactive_drawing.tc
+│       └── rainbow.tc, shapes.tc, flower.tc, kaleidoscope.tc, ...
 │
 ├── docs/                   # Documentation
+│   ├── INDEX.md            # Documentation index
+│   ├── QUICK_START.md, FAQ.md, TROUBLESHOOTING.md
 │   ├── languages/          # Language reference
 │   │   └── TEMPLECODE_REFERENCE.md
-│   ├── user/               # User guides
-│   │   └── LANGUAGE_TUTORIALS.md
+│   ├── user/               # User guides & tutorials
+│   │   ├── USER_GUIDE.md, LANGUAGE_TUTORIALS.md
+│   │   ├── STUDENT_TUTORIAL.md, INSTRUCTOR_GUIDE.md
+│   │   ├── KEYBOARD_SHORTCUTS.md, THEMES_AND_FONTS.md
 │   └── dev/                # Developer docs
 │       └── TECHNICAL_REFERENCE.md
 │
@@ -329,20 +327,20 @@ Time_Warp_II/
 
 ### Required Python Packages
 - **tkinter** — GUI framework (usually included with Python)
-- **pygame** — Graphics support (installed automatically)
+- **pygame-ce** — Graphics and multimedia support (community edition, installed automatically)
+- **pygments** — Syntax highlighting (installed automatically)
 - **Pillow** — Image processing (installed automatically)
 
-### Optional Packages
-- **pygments** — Syntax highlighting (for advanced features)
-- **pytest** — Testing framework (for development)
-- **black** — Code formatting (for development)
-- **flake8** — Linting (for development)
+### Development Packages (Optional)
+- **pytest** — Testing framework
+- **black** — Code formatting
+- **flake8** — Linting
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see **[DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)** for detailed information.
+Contributions are welcome! See the **[Technical Reference](docs/dev/TECHNICAL_REFERENCE.md)** for architecture details.
 
 ### Quick Contributing Guide
 
@@ -420,10 +418,12 @@ Use PILOT's `T:`/`A:`/`M:` commands to build interactive quizzes and lessons.
 
 ## 🚧 Roadmap
 
-- [ ] Code completion and IntelliSense
-- [ ] Enhanced syntax highlighting
-- [ ] Debugger with breakpoints
-- [ ] More example programs
+- [x] Tab completion for keywords
+- [x] Syntax highlighting (Pygments-powered)
+- [x] Debugger with breakpoints and error history
+- [x] 21 example programs across all heritages
+- [x] Canvas export (PNG and SVG)
+- [x] Command palette, split editor, code folding
 - [ ] Export programs to standalone executables
 - [ ] Web-based version
 
@@ -431,4 +431,4 @@ Use PILOT's `T:`/`A:`/`M:` commands to build interactive quizzes and lessons.
 
 **Time Warp II** — *One IDE, one language, three heritages.* 🕰️
 
-© 2025 Honey Badger Universe | Educational Software
+© 2025–2026 Honey Badger Universe | Educational Software

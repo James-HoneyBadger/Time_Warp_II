@@ -695,4 +695,4 @@ python run.py
 ---
 
 *Time Warp II — Technical Reference*
-*Copyright © 2025 Honey Badger Universe*
+*Copyright © 2025–2026 Honey Badger Universe*

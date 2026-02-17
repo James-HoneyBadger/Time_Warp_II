@@ -5,10 +5,15 @@ __pycache__/
 *.pyd
 .Python
 *.so
+*.bak
 .pytest_cache/
+.mypy_cache/
 *.egg-info/
 dist/
 build/
+htmlcov/
+.coverage
+.coverage.*
 
 # Virtual Environment
 timewarp_venv/
@@ -64,9 +69,7 @@ config.json
 # Cache directories
 .cache/
 
-# Test and temporary files
-test_*.py
-*_test.py
+# Temporary development files
 debug_*.py
 benchmark_*.py
 stress_test_*.py
@@ -75,12 +78,6 @@ stress_test_*.py
 temp_*.py
 edge_case_*.py
 diagnose_*.py
-
-# Documentation files (will be generated)
-*_SUMMARY.md
-*_REPORT.md
-*_GUIDE.md
-*_COMPLETE.md
 
 # Game and demo files (examples only)
 demo_*.py

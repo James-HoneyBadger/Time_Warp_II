@@ -9,7 +9,7 @@ Solutions for common issues in Time Warp II.
 **Problem:** Python file won't launch
 
 **Solutions:**
-1. Ensure Python 3.9+ is installed: `python --version`
+1. Ensure Python 3.10+ is installed: `python --version`
 2. Install tkinter: `sudo apt-get install python3-tk` (Linux) or through Python installer (Windows)
 3. Run from terminal: `python TimeWarpII.py`
 
@@ -41,20 +41,10 @@ pip install -r requirements.txt
 **Problem:** Click Execute but nothing happens
 
 **Solutions:**
-1. Ensure language is selected correctly
-2. Check syntax for obvious errors
-3. Look for error message in output panel
-4. Try a simple program: `PRINT "Hello"`
-
-### "Unknown Language" Error
-
-**Problem:** Language not recognized
-
-**Solutions:**
-1. Check language dropdown
-2. Enable "Auto-Detect Language"
-3. Ensure code uses correct syntax
-4. Try manual language selection
+1. Check syntax for obvious errors
+2. Look for error message in output panel
+3. Try a simple program: `PRINT "Hello"`
+4. Restart the IDE and try again
 
 ### "Syntax Error" Messages
 
@@ -210,7 +200,7 @@ pip install -r requirements.txt
 ### Check System Requirements
 
 ```bash
-python --version      # Should be 3.9+
+python --version      # Should be 3.10+
 python -m tkinter     # Should open test window
 pip list             # Check installed packages
 ```
@@ -265,8 +255,8 @@ Look for debug settings in code or check terminal output verbosity.
 All working examples in `examples/` directory
 
 ### Check Demo Programs
-Each language has comprehensive demo in:
-`examples/[language]/comprehensive_demo.*`
+Working example programs are in:
+`examples/templecode/`
 
 ### Search for Keywords
 Use Find (Ctrl+F) in documentation

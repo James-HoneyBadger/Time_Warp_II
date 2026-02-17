@@ -172,6 +172,15 @@ class TempleCodeExecutor:
         """A: – Accept user input, store in variable or $INPUT."""
         prompt = self._interpolate_vars(arg) if arg else ""
         value = self.interpreter.get_input(prompt)
+
+        # Try numeric conversion (matches BASIC INPUT behaviour)
+        try:
+            value = float(value)
+            if value == int(value):
+                value = int(value)
+        except (ValueError, TypeError):
+            pass
+
         self.system_vars["answer"] = value
         self.interpreter.variables["INPUT"] = value
         self.interpreter.variables["ANSWER"] = value
@@ -199,7 +208,7 @@ class TempleCodeExecutor:
         patterns = [p.strip().lower() for p in arg.split(",")]
         matched = any(p in answer for p in patterns if p)
         self.interpreter.match_flag = matched
-        self.interpreter._last_match_set = True
+        self.interpreter._last_match_set = True  # pylint: disable=protected-access
         if matched:
             self.system_vars["matched"] = arg
             self.system_vars["status"] = 1
@@ -333,7 +342,7 @@ class TempleCodeExecutor:
     #  Logo sub-system
     # ==================================================================
 
-    def _dispatch_logo(self, command, first_word):
+    def _dispatch_logo(self, command, first_word):  # noqa: C901
         """Route Logo turtle-graphics commands."""
         parts = command.split()
         cmd = first_word.upper()
@@ -1034,7 +1043,7 @@ class TempleCodeExecutor:
     #  BASIC sub-system
     # ==================================================================
 
-    def _dispatch_basic(self, command, first_word, upper_cmd):
+    def _dispatch_basic(self, command, first_word, upper_cmd):  # noqa: C901
         """Route BASIC-style statements."""
         cmd = first_word.upper()
 
@@ -1060,7 +1069,7 @@ class TempleCodeExecutor:
         elif cmd == "GOSUB":
             return self._basic_gosub(command)
         elif cmd == "RETURN":
-            return self._basic_return()
+            return self._modern_return(command)
         elif cmd == "DIM":
             return self._basic_dim(command)
         elif cmd == "REM" or cmd == "'":
@@ -1074,12 +1083,22 @@ class TempleCodeExecutor:
                 return "continue"
             elif upper_cmd == "END IF":
                 return "continue"  # Block IF closing — no-op
+            elif upper_cmd == "END SUB":
+                return "return"  # End of subroutine
+            elif upper_cmd == "END FUNCTION":
+                return "return"  # End of function
+            elif upper_cmd == "END TRY":
+                if self.interpreter.try_stack:
+                    self.interpreter.try_stack.pop()
+                return "continue"
             else:
                 self.interpreter.running = False
                 return "end"
         elif cmd == "STOP":
             self.interpreter.running = False
             return "end"
+        elif cmd == "BREAK":
+            return "break"
         elif cmd == "CLS":
             if hasattr(self.interpreter, 'output_widget') and self.interpreter.output_widget:
                 try:
@@ -1144,6 +1163,118 @@ class TempleCodeExecutor:
         elif cmd == "SPC":
             return self._basic_spc(command)
 
+        # --- Modern language extensions ---
+        elif cmd == "SUB":
+            return self._modern_sub_define(command)
+        elif cmd == "FUNCTION":
+            return self._modern_function_define(command)
+        elif cmd == "CALL":
+            return self._modern_call(command)
+        elif cmd == "RETURN":
+            return self._modern_return(command)
+
+        # List operations
+        elif cmd == "LIST":
+            return self._modern_list(command)
+        elif cmd == "PUSH":
+            return self._modern_push(command)
+        elif cmd == "POP":
+            return self._modern_pop(command)
+        elif cmd == "SHIFT":
+            return self._modern_shift(command)
+        elif cmd == "UNSHIFT":
+            return self._modern_unshift(command)
+        elif cmd == "SORT":
+            return self._modern_sort(command)
+        elif cmd == "REVERSE":
+            return self._modern_reverse(command)
+        elif cmd == "SPLICE":
+            return self._modern_splice(command)
+
+        # Dictionary operations
+        elif cmd == "DICT":
+            return self._modern_dict(command)
+        elif cmd == "SET":
+            return self._modern_set(command)
+        elif cmd == "GET":
+            return self._modern_get(command)
+        elif cmd == "DELETE":
+            return self._modern_delete(command)
+
+        # File I/O
+        elif cmd == "OPEN":
+            return self._modern_open(command)
+        elif cmd == "CLOSE":
+            return self._modern_close(command)
+        elif cmd == "READLINE":
+            return self._modern_readline(command)
+        elif cmd == "WRITELINE":
+            return self._modern_writeline(command)
+        elif cmd == "READFILE":
+            return self._modern_readfile(command)
+        elif cmd == "WRITEFILE":
+            return self._modern_writefile(command)
+        elif cmd == "APPENDFILE":
+            return self._modern_appendfile(command)
+
+        # Error handling
+        elif cmd == "TRY":
+            return self._modern_try(command)
+        elif cmd == "CATCH":
+            return self._modern_catch(command)
+        elif cmd == "THROW":
+            return self._modern_throw(command)
+
+        # Modern control flow
+        elif cmd == "FOREACH":
+            return self._modern_foreach(command)
+
+        # Constants & type operations
+        elif cmd == "CONST":
+            return self._modern_const(command)
+        elif cmd == "TYPEOF":
+            return self._modern_typeof(command)
+        elif cmd == "ASSERT":
+            return self._modern_assert(command)
+
+        # Module system
+        elif cmd == "IMPORT":
+            return self._modern_import(command)
+
+        # Formatted output
+        elif cmd == "PRINTF":
+            return self._modern_printf(command)
+
+        # JSON operations
+        elif cmd == "JSON":
+            return self._modern_json(command)
+
+        # Regex operations
+        elif cmd == "REGEX":
+            return self._modern_regex(command)
+
+        # ENUM
+        elif cmd == "ENUM":
+            return self._modern_enum(command)
+
+        # STRUCT
+        elif cmd == "STRUCT":
+            return self._modern_struct(command)
+        elif cmd == "NEW":
+            return self._modern_new(command)
+
+        # LAMBDA
+        elif cmd == "LAMBDA":
+            return self._modern_lambda(command)
+
+        # Functional list operations
+        elif cmd == "MAP":
+            return self._modern_map(command)
+        elif cmd == "FILTER":
+            return self._modern_filter(command)
+        elif cmd == "REDUCE":
+            return self._modern_reduce(command)
+
         # Turtle graphics commands accessible from BASIC style
         elif cmd in ("FORWARD", "FD", "BACK", "BK", "BACKWARD",
                      "LEFT", "LT", "RIGHT", "RT",
@@ -1156,10 +1287,10 @@ class TempleCodeExecutor:
 
         # Math/string function calls as statements
         elif cmd in ("SIN", "COS", "TAN", "SQRT", "ABS", "INT", "RND",
-                      "LOG", "EXP", "CEIL", "FIX"):
+                     "LOG", "EXP", "CEIL", "FIX"):
             return self._basic_math_func(command)
         elif cmd in ("LEN", "MID", "LEFT", "RIGHT", "INSTR", "STR",
-                      "VAL", "CHR", "ASC", "UCASE", "LCASE"):
+                     "VAL", "CHR", "ASC", "UCASE", "LCASE"):
             return self._basic_string_func(command)
 
         else:
@@ -1248,6 +1379,32 @@ class TempleCodeExecutor:
             return "continue"
 
         var_name = var_part.upper()
+
+        # Protect constants
+        if var_name in self.interpreter.constants:
+            self.interpreter.log_output(f"Cannot reassign constant: {var_name}")
+            return "continue"
+
+        # Support list element assignment: LIST[index]
+        list_m = re.match(r'(\w+)\[(.+)\]', text.split("=")[0].strip())
+        if list_m:
+            lname = list_m.group(1).upper()
+            idx = int(float(self._eval_basic_expression(list_m.group(2))))
+            if lname in self.interpreter.lists:
+                while len(self.interpreter.lists[lname]) <= idx:
+                    self.interpreter.lists[lname].append(0)
+                self.interpreter.lists[lname][idx] = self._eval_basic_expression(expr)
+                return "continue"
+
+        # Support dict field assignment: DICT.key
+        dot_m = re.match(r'(\w+)\.(\w+)', text.split("=")[0].strip())
+        if dot_m:
+            dname = dot_m.group(1).upper()
+            key = dot_m.group(2)
+            if dname in self.interpreter.dicts:
+                self.interpreter.dicts[dname][key] = self._eval_basic_expression(expr)
+                return "continue"
+
         value = self._eval_basic_expression(expr)
         self.interpreter.variables[var_name] = value
         return "continue"
@@ -1379,7 +1536,7 @@ class TempleCodeExecutor:
     def _basic_for(self, command):
         """FOR var = start TO end [STEP step]"""
         m = re.match(r'FOR\s+(\w+)\s*=\s*(.+?)\s+TO\s+(.+?)(?:\s+STEP\s+(.+))?$',
-                      command, re.IGNORECASE)
+                     command, re.IGNORECASE)
         if not m:
             self.interpreter.log_output(f"FOR syntax error: {command}")
             return "continue"
@@ -1520,8 +1677,8 @@ class TempleCodeExecutor:
         var_names = [v.strip().upper() for v in text.split(",")]
 
         # Use interpreter's pre-collected data values
-        data_values = self.interpreter._data_values
-        data_pos = self.interpreter._data_pos
+        data_values = self.interpreter._data_values  # pylint: disable=protected-access
+        data_pos = self.interpreter._data_pos  # pylint: disable=protected-access
 
         for var in var_names:
             if data_pos < len(data_values):
@@ -1530,14 +1687,14 @@ class TempleCodeExecutor:
             else:
                 self.interpreter.log_output("Out of DATA")
                 break
-        self.interpreter._data_pos = data_pos
+        self.interpreter._data_pos = data_pos  # pylint: disable=protected-access
         return "continue"
 
     # --- BASIC RESTORE ---
 
     def _basic_restore(self):
         """RESTORE – reset DATA pointer to beginning."""
-        self.interpreter._data_pos = 0
+        self.interpreter._data_pos = 0  # pylint: disable=protected-access
         return "continue"
 
     # --- BASIC DELAY ---
@@ -1919,7 +2076,7 @@ class TempleCodeExecutor:
     #  Expression evaluation helpers
     # ==================================================================
 
-    def _eval_basic_expression(self, expr):
+    def _eval_basic_expression(self, expr):  # noqa: C901
         """Evaluate a BASIC expression (string or numeric)."""
         expr = expr.strip()
         if not expr:
@@ -1939,7 +2096,7 @@ class TempleCodeExecutor:
             var_name = expr.upper()
             # Pseudo-variables take priority over regular variables
             if var_name == "TIMER":
-                return round(time.time() - self.interpreter._program_start_time, 3)
+                return round(time.time() - self.interpreter._program_start_time, 3)  # pylint: disable=protected-access
             if var_name == "DATE$":
                 import datetime as _dt
                 return _dt.date.today().isoformat()
@@ -1954,7 +2111,7 @@ class TempleCodeExecutor:
 
         # TIMER pseudo-variable
         if upper_expr == "TIMER":
-            return round(time.time() - self.interpreter._program_start_time, 3)
+            return round(time.time() - self.interpreter._program_start_time, 3)  # pylint: disable=protected-access
 
         # DATE$ and TIME$ pseudo-variables
         if upper_expr == "DATE$":
@@ -2088,12 +2245,26 @@ class TempleCodeExecutor:
         arr_match = re.match(r'^(\w+)\((.+)\)$', expr)
         if arr_match:
             arr_name = arr_match.group(1).upper()
+            # Check if this is a user-defined function call
+            if arr_name in self.interpreter.function_definitions:
+                defn = self.interpreter.function_definitions[arr_name]
+                args = [a.strip() for a in arr_match.group(2).split(",")]
+                if defn.get("is_lambda"):
+                    return self._apply_func(arr_name, [self._eval_basic_expression(a) for a in args])
+                else:
+                    self._execute_sub_or_function(arr_name, defn, args)
+                    return self.interpreter.return_value if self.interpreter.return_value is not None else 0
             idx = int(float(self.interpreter.evaluate_expression(arr_match.group(2))))
             if arr_name in self.arrays:
                 if 0 <= idx < len(self.arrays[arr_name]):
                     return self.arrays[arr_name][idx]
             # Check interpreter variables
             return self.interpreter.variables.get(f"{arr_name}({idx})", 0)
+
+        # Try extended expression evaluator for modern features
+        ext_result = self._eval_basic_expression_extended(expr)
+        if ext_result is not expr:  # extended evaluator handled it
+            return ext_result
 
         # Fall through to interpreter's evaluate_expression
         try:
@@ -2156,3 +2327,1425 @@ class TempleCodeExecutor:
         # Truthy evaluation
         val = self._eval_basic_expression(condition)
         return bool(val)
+
+    # ==================================================================
+    #  MODERN LANGUAGE EXTENSIONS
+    # ==================================================================
+    #
+    #  These features transform TempleCode from a purely educational
+    #  language into a practical, modern programming language while
+    #  retaining its accessible BASIC-family syntax.
+    #
+
+    # ------------------------------------------------------------------
+    #  SUB / FUNCTION — Structured procedures with parameters & locals
+    # ------------------------------------------------------------------
+
+    def _modern_sub_define(self, command):
+        """SUB name(param1, param2, ...)
+        Collects lines until END SUB. Subs don't return values."""
+        m = re.match(r'SUB\s+(\w+)\s*\(([^)]*)\)', command, re.IGNORECASE)
+        if not m:
+            # SUB with no params: SUB name
+            m2 = re.match(r'SUB\s+(\w+)', command, re.IGNORECASE)
+            if m2:
+                name = m2.group(1).upper()
+                params = []
+            else:
+                self.interpreter.log_output("SUB syntax: SUB name(params)")
+                return "continue"
+        else:
+            name = m.group(1).upper()
+            params = [p.strip().upper() for p in m.group(2).split(",") if p.strip()]
+
+        # Collect body lines until END SUB
+        body_start = self.interpreter.current_line + 1
+        depth = 1
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            lu = lt.strip().upper()
+            if lu.startswith("SUB ") or lu.startswith("FUNCTION "):
+                depth += 1
+            elif lu == "END SUB" or lu == "END FUNCTION":
+                depth -= 1
+                if depth == 0:
+                    break
+            self.interpreter.current_line += 1
+
+        body_end = self.interpreter.current_line
+        self.interpreter.sub_definitions[name] = {
+            "params": params,
+            "body_start": body_start,
+            "body_end": body_end,
+        }
+        return "continue"
+
+    def _modern_function_define(self, command):
+        """FUNCTION name(param1, param2, ...)
+        Collects lines until END FUNCTION. Use RETURN expr to return a value."""
+        m = re.match(r'FUNCTION\s+(\w+)\s*\(([^)]*)\)', command, re.IGNORECASE)
+        if not m:
+            m2 = re.match(r'FUNCTION\s+(\w+)', command, re.IGNORECASE)
+            if m2:
+                name = m2.group(1).upper()
+                params = []
+            else:
+                self.interpreter.log_output("FUNCTION syntax: FUNCTION name(params)")
+                return "continue"
+        else:
+            name = m.group(1).upper()
+            params = [p.strip().upper() for p in m.group(2).split(",") if p.strip()]
+
+        body_start = self.interpreter.current_line + 1
+        depth = 1
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            lu = lt.strip().upper()
+            if lu.startswith("SUB ") or lu.startswith("FUNCTION "):
+                depth += 1
+            elif lu == "END SUB" or lu == "END FUNCTION":
+                depth -= 1
+                if depth == 0:
+                    break
+            self.interpreter.current_line += 1
+
+        body_end = self.interpreter.current_line
+        self.interpreter.function_definitions[name] = {
+            "params": params,
+            "body_start": body_start,
+            "body_end": body_end,
+        }
+        return "continue"
+
+    def _modern_call(self, command):
+        """CALL sub_name(arg1, arg2, ...)
+        or CALL sub_name arg1, arg2"""
+        text = re.sub(r'^CALL\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # Parse name and arguments
+        m = re.match(r'(\w+)\s*\(([^)]*)\)', text)
+        if m:
+            name = m.group(1).upper()
+            arg_str = m.group(2)
+        else:
+            parts = text.split(None, 1)
+            name = parts[0].upper()
+            arg_str = parts[1] if len(parts) > 1 else ""
+
+        args = [a.strip() for a in arg_str.split(",") if a.strip()] if arg_str else []
+
+        # Look up in sub_definitions or function_definitions
+        defn = self.interpreter.sub_definitions.get(name) or self.interpreter.function_definitions.get(name)
+        if not defn:
+            self.interpreter.log_output(f"Undefined SUB/FUNCTION: {name}")
+            return "continue"
+
+        return self._execute_sub_or_function(name, defn, args)
+
+    def _execute_sub_or_function(self, name, defn, args):
+        """Execute a SUB or FUNCTION by running its body lines."""
+        params = defn["params"]
+        body_start = defn["body_start"]
+        body_end = defn["body_end"]
+
+        # Save caller state
+        saved_vars = {}
+        for i, param in enumerate(params):
+            saved_vars[param] = self.interpreter.variables.get(param)
+            if i < len(args):
+                val = self._eval_basic_expression(args[i])
+                self.interpreter.variables[param] = val
+
+        # Save execution position
+        self.interpreter.call_stack.append({
+            "return_line": self.interpreter.current_line,
+            "saved_vars": saved_vars,
+            "params": params,
+        })
+
+        # Execute body lines
+        self.interpreter.return_value = None
+        self.interpreter.current_line = body_start
+
+        while self.interpreter.current_line < body_end:
+            _, cmd = self.interpreter.program_lines[self.interpreter.current_line]
+            cmd = cmd.strip()
+            if not cmd:
+                self.interpreter.current_line += 1
+                continue
+
+            result = self.execute_command(cmd)
+            if result == "return" or result == "end":
+                break
+            if result == "jump":
+                continue
+            self.interpreter.current_line += 1
+
+        # Restore caller state
+        frame = self.interpreter.call_stack.pop()
+        for param in frame["params"]:
+            if frame["saved_vars"].get(param) is not None:
+                self.interpreter.variables[param] = frame["saved_vars"][param]
+            elif param in self.interpreter.variables:
+                del self.interpreter.variables[param]
+
+        self.interpreter.current_line = frame["return_line"]
+        return "continue"
+
+    def _modern_return(self, command):
+        """RETURN [expression]
+        In a FUNCTION, returns a value. In a SUB, just exits.
+        Falls back to BASIC RETURN (GOSUB) if not in a SUB/FUNCTION."""
+        text = re.sub(r'^RETURN\s*', '', command, flags=re.IGNORECASE).strip()
+
+        # If we're inside a SUB/FUNCTION call
+        if self.interpreter.call_stack:
+            if text:
+                self.interpreter.return_value = self._eval_basic_expression(text)
+                self.interpreter.variables["RESULT"] = self.interpreter.return_value
+            return "return"
+
+        # Fall back to BASIC GOSUB RETURN
+        return self._basic_return()
+
+    # ------------------------------------------------------------------
+    #  LIST — Dynamic arrays / lists
+    # ------------------------------------------------------------------
+
+    def _modern_list(self, command):
+        """LIST name = val1, val2, val3   or   LIST name
+        Creates a list (dynamic array)."""
+        text = re.sub(r'^LIST\s+', '', command, flags=re.IGNORECASE).strip()
+
+        if "=" in text:
+            name, _, vals_str = text.partition("=")
+            name = name.strip().upper()
+            vals = []
+            for v in self._smart_split(vals_str.strip(), ","):
+                v = v.strip()
+                vals.append(self._eval_basic_expression(v))
+            self.interpreter.lists[name] = vals
+        else:
+            name = text.strip().upper()
+            self.interpreter.lists[name] = []
+        return "continue"
+
+    def _modern_push(self, command):
+        """PUSH list_name, value [, value ...]"""
+        text = re.sub(r'^PUSH\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = self._smart_split(text, ",")
+        if len(parts) < 2:
+            self.interpreter.log_output("PUSH syntax: PUSH list, value")
+            return "continue"
+        name = parts[0].strip().upper()
+        if name not in self.interpreter.lists:
+            self.interpreter.lists[name] = []
+        for v in parts[1:]:
+            self.interpreter.lists[name].append(self._eval_basic_expression(v.strip()))
+        self.interpreter.variables[name + "_LENGTH"] = len(self.interpreter.lists[name])
+        return "continue"
+
+    def _modern_pop(self, command):
+        """POP list_name [, var_name]  — remove last element, optionally store it."""
+        text = re.sub(r'^POP\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        name = parts[0].upper()
+        if name not in self.interpreter.lists or not self.interpreter.lists[name]:
+            self.interpreter.log_output(f"POP: list '{name}' is empty or undefined")
+            return "continue"
+        val = self.interpreter.lists[name].pop()
+        if len(parts) > 1:
+            self.interpreter.variables[parts[1].upper()] = val
+        self.interpreter.variables[name + "_LENGTH"] = len(self.interpreter.lists[name])
+        return "continue"
+
+    def _modern_shift(self, command):
+        """SHIFT list_name [, var_name]  — remove first element."""
+        text = re.sub(r'^SHIFT\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        name = parts[0].upper()
+        if name not in self.interpreter.lists or not self.interpreter.lists[name]:
+            self.interpreter.log_output(f"SHIFT: list '{name}' is empty or undefined")
+            return "continue"
+        val = self.interpreter.lists[name].pop(0)
+        if len(parts) > 1:
+            self.interpreter.variables[parts[1].upper()] = val
+        self.interpreter.variables[name + "_LENGTH"] = len(self.interpreter.lists[name])
+        return "continue"
+
+    def _modern_unshift(self, command):
+        """UNSHIFT list_name, value  — prepend to list."""
+        text = re.sub(r'^UNSHIFT\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = self._smart_split(text, ",")
+        if len(parts) < 2:
+            self.interpreter.log_output("UNSHIFT syntax: UNSHIFT list, value")
+            return "continue"
+        name = parts[0].strip().upper()
+        if name not in self.interpreter.lists:
+            self.interpreter.lists[name] = []
+        for v in reversed(parts[1:]):
+            self.interpreter.lists[name].insert(0, self._eval_basic_expression(v.strip()))
+        self.interpreter.variables[name + "_LENGTH"] = len(self.interpreter.lists[name])
+        return "continue"
+
+    def _modern_sort(self, command):
+        """SORT list_name [DESC]"""
+        text = re.sub(r'^SORT\s+', '', command, flags=re.IGNORECASE).strip()
+        desc = False
+        if text.upper().endswith(" DESC"):
+            desc = True
+            text = text[:-5].strip()
+        name = text.upper()
+        if name in self.interpreter.lists:
+            try:
+                self.interpreter.lists[name].sort(
+                    key=lambda x: (0, float(x)) if isinstance(x, (int, float)) else (1, str(x)),
+                    reverse=desc
+                )
+            except Exception:
+                self.interpreter.lists[name].sort(key=str, reverse=desc)
+        return "continue"
+
+    def _modern_reverse(self, command):
+        """REVERSE list_name"""
+        text = re.sub(r'^REVERSE\s+', '', command, flags=re.IGNORECASE).strip()
+        name = text.upper()
+        if name in self.interpreter.lists:
+            self.interpreter.lists[name].reverse()
+        return "continue"
+
+    def _modern_splice(self, command):
+        """SPLICE list_name, start, count [, val1, val2, ...]"""
+        text = re.sub(r'^SPLICE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = self._smart_split(text, ",")
+        if len(parts) < 3:
+            self.interpreter.log_output("SPLICE syntax: SPLICE list, start, count [, insertvals...]")
+            return "continue"
+        name = parts[0].strip().upper()
+        start = int(float(self._eval_basic_expression(parts[1].strip())))
+        count = int(float(self._eval_basic_expression(parts[2].strip())))
+        inserts = [self._eval_basic_expression(p.strip()) for p in parts[3:]]
+        if name in self.interpreter.lists:
+            del self.interpreter.lists[name][start:start + count]
+            for i, v in enumerate(inserts):
+                self.interpreter.lists[name].insert(start + i, v)
+            self.interpreter.variables[name + "_LENGTH"] = len(self.interpreter.lists[name])
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  DICT — Dictionaries / hashmaps
+    # ------------------------------------------------------------------
+
+    def _modern_dict(self, command):
+        """DICT name   or   DICT name = key1:val1, key2:val2"""
+        text = re.sub(r'^DICT\s+', '', command, flags=re.IGNORECASE).strip()
+        if "=" in text:
+            name, _, vals_str = text.partition("=")
+            name = name.strip().upper()
+            d = {}
+            for kv in self._smart_split(vals_str.strip(), ","):
+                if ":" in kv:
+                    k, _, v = kv.partition(":")
+                    d[self._eval_basic_expression(k.strip())] = self._eval_basic_expression(v.strip())
+            self.interpreter.dicts[name] = d
+        else:
+            name = text.strip().upper()
+            self.interpreter.dicts[name] = {}
+        return "continue"
+
+    def _modern_set(self, command):
+        """SET dict_name, key, value   or   SET dict_name.key = value"""
+        text = re.sub(r'^SET\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # SET dict.key = value
+        dot_m = re.match(r'(\w+)\.(\w+)\s*=\s*(.*)', text)
+        if dot_m:
+            name = dot_m.group(1).upper()
+            key = dot_m.group(2)
+            val = self._eval_basic_expression(dot_m.group(3).strip())
+            if name not in self.interpreter.dicts:
+                self.interpreter.dicts[name] = {}
+            self.interpreter.dicts[name][key] = val
+            return "continue"
+
+        # SET dict, key, value
+        parts = self._smart_split(text, ",")
+        if len(parts) >= 3:
+            name = parts[0].strip().upper()
+            key = self._eval_basic_expression(parts[1].strip())
+            val = self._eval_basic_expression(parts[2].strip())
+            if name not in self.interpreter.dicts:
+                self.interpreter.dicts[name] = {}
+            self.interpreter.dicts[name][key] = val
+        return "continue"
+
+    def _modern_get(self, command):
+        """GET dict_name, key, result_var   or   GET dict.key INTO var"""
+        text = re.sub(r'^GET\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # GET dict.key INTO var
+        dot_m = re.match(r'(\w+)\.(\w+)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+        if dot_m:
+            name = dot_m.group(1).upper()
+            key = dot_m.group(2)
+            var = dot_m.group(3).upper()
+            if name in self.interpreter.dicts:
+                self.interpreter.variables[var] = self.interpreter.dicts[name].get(key, "")
+            return "continue"
+
+        # GET dict, key, var
+        parts = self._smart_split(text, ",")
+        if len(parts) >= 3:
+            name = parts[0].strip().upper()
+            key = self._eval_basic_expression(parts[1].strip())
+            var = parts[2].strip().upper()
+            if name in self.interpreter.dicts:
+                self.interpreter.variables[var] = self.interpreter.dicts[name].get(key, "")
+            else:
+                self.interpreter.variables[var] = ""
+        return "continue"
+
+    def _modern_delete(self, command):
+        """DELETE dict_name, key   or   DELETE dict.key"""
+        text = re.sub(r'^DELETE\s+', '', command, flags=re.IGNORECASE).strip()
+        dot_m = re.match(r'(\w+)\.(\w+)', text)
+        if dot_m:
+            name = dot_m.group(1).upper()
+            key = dot_m.group(2)
+            if name in self.interpreter.dicts:
+                self.interpreter.dicts[name].pop(key, None)
+            return "continue"
+
+        parts = self._smart_split(text, ",")
+        if len(parts) >= 2:
+            name = parts[0].strip().upper()
+            key = self._eval_basic_expression(parts[1].strip())
+            if name in self.interpreter.dicts:
+                self.interpreter.dicts[name].pop(key, None)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  FILE I/O
+    # ------------------------------------------------------------------
+
+    def _modern_open(self, command):
+        """OPEN "filename" FOR INPUT|OUTPUT|APPEND AS #n"""
+        m = re.match(
+            r'OPEN\s+"([^"]+)"\s+FOR\s+(INPUT|OUTPUT|APPEND)\s+AS\s+#?(\d+)',
+            command, re.IGNORECASE
+        )
+        if not m:
+            self.interpreter.log_output('OPEN syntax: OPEN "file" FOR INPUT|OUTPUT|APPEND AS #n')
+            return "continue"
+        filename = m.group(1)
+        mode_str = m.group(2).upper()
+        handle = int(m.group(3))
+        mode_map = {"INPUT": "r", "OUTPUT": "w", "APPEND": "a"}
+        try:
+            self.interpreter.file_handles[handle] = open(filename, mode_map[mode_str], encoding="utf-8")
+        except Exception as e:
+            self.interpreter.log_output(f"File error: {e}")
+        return "continue"
+
+    def _modern_close(self, command):
+        """CLOSE #n   or   CLOSE ALL"""
+        text = re.sub(r'^CLOSE\s+', '', command, flags=re.IGNORECASE).strip()
+        if text.upper() == "ALL":
+            for fh in self.interpreter.file_handles.values():
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            self.interpreter.file_handles.clear()
+        else:
+            handle = int(text.lstrip("#"))
+            if handle in self.interpreter.file_handles:
+                try:
+                    self.interpreter.file_handles[handle].close()
+                except Exception:
+                    pass
+                del self.interpreter.file_handles[handle]
+        return "continue"
+
+    def _modern_readline(self, command):
+        """READLINE #n, var_name   — read one line from file"""
+        text = re.sub(r'^READLINE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        if len(parts) < 2:
+            self.interpreter.log_output("READLINE syntax: READLINE #n, variable")
+            return "continue"
+        handle = int(parts[0].lstrip("#"))
+        var = parts[1].upper()
+        fh = self.interpreter.file_handles.get(handle)
+        if fh:
+            line = fh.readline()
+            if line:
+                self.interpreter.variables[var] = line.rstrip("\n\r")
+                self.interpreter.variables["EOF"] = 0
+            else:
+                self.interpreter.variables[var] = ""
+                self.interpreter.variables["EOF"] = 1
+        return "continue"
+
+    def _modern_writeline(self, command):
+        """WRITELINE #n, expression"""
+        text = re.sub(r'^WRITELINE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = self._smart_split(text, ",")
+        if len(parts) < 2:
+            self.interpreter.log_output("WRITELINE syntax: WRITELINE #n, expression")
+            return "continue"
+        handle = int(parts[0].strip().lstrip("#"))
+        val = self._eval_basic_expression(",".join(parts[1:]).strip())
+        fh = self.interpreter.file_handles.get(handle)
+        if fh:
+            fh.write(str(val) + "\n")
+        return "continue"
+
+    def _modern_readfile(self, command):
+        """READFILE "filename", var_name -- read entire file into variable"""
+        m = re.match(r'READFILE\s+"([^"]+)"\s*,\s*(\w+)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('READFILE syntax: READFILE "file", variable')
+            return "continue"
+        filename = m.group(1)
+        var = m.group(2).upper()
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                self.interpreter.variables[var] = f.read()
+        except Exception as e:
+            self.interpreter.log_output(f"File error: {e}")
+            self.interpreter.variables[var] = ""
+        return "continue"
+
+    def _modern_writefile(self, command):
+        """WRITEFILE "filename", expression"""
+        m = re.match(r'WRITEFILE\s+"([^"]+)"\s*,\s*(.*)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('WRITEFILE syntax: WRITEFILE "file", expression')
+            return "continue"
+        filename = m.group(1)
+        val = self._eval_basic_expression(m.group(2).strip())
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(str(val))
+        except Exception as e:
+            self.interpreter.log_output(f"File error: {e}")
+        return "continue"
+
+    def _modern_appendfile(self, command):
+        """APPENDFILE "filename", expression"""
+        m = re.match(r'APPENDFILE\s+"([^"]+)"\s*,\s*(.*)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('APPENDFILE syntax: APPENDFILE "file", expression')
+            return "continue"
+        filename = m.group(1)
+        val = self._eval_basic_expression(m.group(2).strip())
+        try:
+            with open(filename, "a", encoding="utf-8") as f:
+                f.write(str(val) + "\n")
+        except Exception as e:
+            self.interpreter.log_output(f"File error: {e}")
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  TRY / CATCH / THROW — Error handling
+    # ------------------------------------------------------------------
+
+    def _modern_try(self, _command):
+        """TRY — begin error-protected block. Errors jump to CATCH."""
+        self.interpreter.try_stack.append({
+            "try_line": self.interpreter.current_line,
+            "catch_line": None,
+            "end_line": None,
+        })
+        # Scan ahead for CATCH and END TRY
+        scan = self.interpreter.current_line + 1
+        depth = 1
+        while scan < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[scan]
+            lu = lt.strip().upper()
+            if lu == "TRY":
+                depth += 1
+            elif lu.startswith("CATCH") and depth == 1:
+                self.interpreter.try_stack[-1]["catch_line"] = scan
+            elif lu == "END TRY":
+                depth -= 1
+                if depth == 0:
+                    self.interpreter.try_stack[-1]["end_line"] = scan
+                    break
+            scan += 1
+        return "continue"
+
+    def _modern_catch(self, command):
+        """CATCH [var]  — error handler block. Only reached by jump from error."""
+        # If execution flows here normally (no error), skip to END TRY
+        if self.interpreter.try_stack:
+            end_line = self.interpreter.try_stack[-1].get("end_line")
+            if end_line:
+                self.interpreter.current_line = end_line
+                self.interpreter.try_stack.pop()
+                return "jump"
+        return "continue"
+
+    def _modern_throw(self, command):
+        """THROW expression  — raise a runtime error."""
+        text = re.sub(r'^THROW\s+', '', command, flags=re.IGNORECASE).strip()
+        error_msg = str(self._eval_basic_expression(text))
+        self.interpreter.last_error = error_msg
+
+        # If inside TRY, jump to CATCH
+        if self.interpreter.try_stack:
+            frame = self.interpreter.try_stack[-1]
+            catch_line = frame.get("catch_line")
+            if catch_line:
+                # Extract variable name from CATCH line
+                _, catch_cmd = self.interpreter.program_lines[catch_line]
+                cm = re.match(r'CATCH\s+(\w+)', catch_cmd.strip(), re.IGNORECASE)
+                if cm:
+                    self.interpreter.variables[cm.group(1).upper()] = error_msg
+                self.interpreter.variables["ERROR$"] = error_msg
+                self.interpreter.current_line = catch_line
+                return "jump"
+            else:
+                self.interpreter.try_stack.pop()
+
+        self.interpreter.log_output(f"Unhandled error: {error_msg}")
+        return "error"
+
+    # ------------------------------------------------------------------
+    #  FOR EACH — Iterate over lists and dictionaries
+    # ------------------------------------------------------------------
+
+    def _modern_foreach(self, command):
+        """FOREACH var IN list_name
+           ...body...
+        NEXT var
+
+        Also supports: FOREACH key, value IN dict_name"""
+        m = re.match(r'FOREACH\s+(\w+)(?:\s*,\s*(\w+))?\s+IN\s+(\w+)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("FOREACH syntax: FOREACH var IN collection")
+            return "continue"
+
+        var1 = m.group(1).upper()
+        var2 = m.group(2).upper() if m.group(2) else None
+        collection_name = m.group(3).upper()
+
+        # Collect body lines until matching NEXT
+        body_start = self.interpreter.current_line + 1
+        depth = 1
+        scan = body_start
+        while scan < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[scan]
+            lu = lt.strip().upper()
+            if lu.startswith("FOR ") or lu.startswith("FOREACH "):
+                depth += 1
+            elif lu.startswith("NEXT"):
+                depth -= 1
+                if depth == 0:
+                    break
+            scan += 1
+        body_end = scan
+
+        body_lines = []
+        for idx in range(body_start, body_end):
+            _, cmd = self.interpreter.program_lines[idx]
+            body_lines.append(cmd)
+
+        # Determine collection type
+        items = []
+        if collection_name in self.interpreter.lists:
+            lst = self.interpreter.lists[collection_name]
+            if var2:
+                items = [(i, v) for i, v in enumerate(lst)]
+            else:
+                items = [(v, None) for v in lst]
+        elif collection_name in self.interpreter.dicts:
+            d = self.interpreter.dicts[collection_name]
+            if var2:
+                items = [(k, v) for k, v in d.items()]
+            else:
+                items = [(k, None) for k in d.keys()]
+        else:
+            self.interpreter.log_output(f"FOREACH: collection '{collection_name}' not found")
+            self.interpreter.current_line = body_end
+            return "continue"
+
+        # Execute body for each item
+        for item in items:
+            self.interpreter.variables[var1] = item[0]
+            if var2 and item[1] is not None:
+                self.interpreter.variables[var2] = item[1]
+            for line in body_lines:
+                line = line.strip()
+                if line:
+                    result = self.execute_command(line)
+                    if result in ("end", "stop", "return"):
+                        self.interpreter.current_line = body_end
+                        return result
+                    if result == "break":
+                        self.interpreter.current_line = body_end
+                        return "continue"
+
+        self.interpreter.current_line = body_end
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  CONST — Constant (immutable) variables
+    # ------------------------------------------------------------------
+
+    def _modern_const(self, command):
+        """CONST name = value"""
+        text = re.sub(r'^CONST\s+', '', command, flags=re.IGNORECASE).strip()
+        m = re.match(r'(\w+)\s*=\s*(.*)', text)
+        if m:
+            name = m.group(1).upper()
+            if name in self.interpreter.constants:
+                self.interpreter.log_output(f"Cannot reassign constant: {name}")
+                return "continue"
+            val = self._eval_basic_expression(m.group(2).strip())
+            self.interpreter.variables[name] = val
+            self.interpreter.constants.add(name)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  TYPEOF — Type introspection
+    # ------------------------------------------------------------------
+
+    def _modern_typeof(self, command):
+        """TYPEOF expr [INTO var]"""
+        text = re.sub(r'^TYPEOF\s+', '', command, flags=re.IGNORECASE).strip()
+        into_m = re.match(r'(.+?)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+        if into_m:
+            expr = into_m.group(1).strip()
+            var = into_m.group(2).upper()
+        else:
+            expr = text
+            var = None
+
+        val = self._eval_basic_expression(expr)
+        if val is None:
+            type_name = "NULL"
+        elif isinstance(val, bool):
+            type_name = "BOOLEAN"
+        elif isinstance(val, int):
+            type_name = "INTEGER"
+        elif isinstance(val, float):
+            type_name = "FLOAT"
+        elif isinstance(val, str):
+            type_name = "STRING"
+        elif isinstance(val, list):
+            type_name = "LIST"
+        elif isinstance(val, dict):
+            type_name = "DICT"
+        else:
+            type_name = "UNKNOWN"
+
+        if var:
+            self.interpreter.variables[var] = type_name
+        else:
+            self.interpreter.log_output(type_name)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  ASSERT — Testing / validation
+    # ------------------------------------------------------------------
+
+    def _modern_assert(self, command):
+        """ASSERT condition [, "message"]"""
+        text = re.sub(r'^ASSERT\s+', '', command, flags=re.IGNORECASE).strip()
+        # Split on last comma to find optional message
+        msg = "Assertion failed"
+        parts = self._smart_split(text, ",")
+        if len(parts) >= 2 and parts[-1].strip().startswith('"'):
+            msg = parts[-1].strip().strip('"')
+            text = ",".join(parts[:-1])
+
+        result = self._eval_basic_condition(text)
+        if not result:
+            self.interpreter.log_output(f"❌ ASSERT FAILED: {msg}")
+            if self.interpreter.try_stack:
+                self.interpreter.last_error = msg
+                return self._modern_throw(f'THROW "{msg}"')
+            return "error"
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  IMPORT — Module system
+    # ------------------------------------------------------------------
+
+    def _modern_import(self, command):
+        """IMPORT "filename.tc"  — include and execute another TempleCode file."""
+        m = re.match(r'IMPORT\s+"([^"]+)"', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('IMPORT syntax: IMPORT "filename.tc"')
+            return "continue"
+        filename = m.group(1)
+        if filename in self.interpreter.imported_modules:
+            return "continue"  # already imported
+        self.interpreter.imported_modules.add(filename)
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                module_code = f.read()
+            # Pre-process for TO/END procedures
+            module_code = self.interpreter._preprocess_logo_program(module_code)  # pylint: disable=protected-access
+            for raw_line in module_code.strip().split("\n"):
+                _, cmd = self.interpreter.parse_line(raw_line)
+                if cmd.strip():
+                    self.execute_command(cmd.strip())
+        except FileNotFoundError:
+            self.interpreter.log_output(f"Module not found: {filename}")
+        except Exception as e:
+            self.interpreter.log_output(f"Import error: {e}")
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  PRINTF — Formatted output
+    # ------------------------------------------------------------------
+
+    def _modern_printf(self, command):
+        """PRINTF "format string {0} {1}", arg1, arg2
+        Supports {n} positional, {var} variable interpolation,
+        and %-style: %d, %s, %f, %.Nf"""
+        text = re.sub(r'^PRINTF\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = self._smart_split(text, ",")
+        if not parts:
+            return "continue"
+
+        fmt_str = self._eval_basic_expression(parts[0].strip())
+        if not isinstance(fmt_str, str):
+            fmt_str = str(fmt_str)
+
+        args = [self._eval_basic_expression(p.strip()) for p in parts[1:]]
+
+        # Replace {0}, {1}, ... with positional args
+        for i, arg in enumerate(args):
+            fmt_str = fmt_str.replace(f"{{{i}}}", str(arg))
+
+        # Replace {VAR_NAME} with variable values
+        def repl_var(m):
+            vn = m.group(1).upper()
+            return str(self.interpreter.variables.get(vn, m.group(0)))
+        fmt_str = re.sub(r'\{([A-Za-z_]\w*)\}', repl_var, fmt_str)
+
+        # %-style format specifiers
+        try:
+            if "%" in fmt_str and args:
+                fmt_str = fmt_str % tuple(args[:fmt_str.count("%")])
+        except Exception:
+            pass
+
+        # Escape sequences
+        fmt_str = fmt_str.replace("\\n", "\n").replace("\\t", "\t")
+
+        self.interpreter.log_output(fmt_str)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  JSON — Parse and stringify
+    # ------------------------------------------------------------------
+
+    def _modern_json(self, command):
+        """JSON PARSE "string" INTO var
+        JSON STRINGIFY dict/list INTO var
+        JSON GET var.key INTO result_var"""
+        text = re.sub(r'^JSON\s+', '', command, flags=re.IGNORECASE).strip()
+        upper_text = text.upper()
+
+        if upper_text.startswith("PARSE"):
+            m = re.match(r'PARSE\s+(.+?)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+            if m:
+                import json
+                expr = self._eval_basic_expression(m.group(1).strip())
+                var = m.group(2).upper()
+                try:
+                    parsed = json.loads(str(expr))
+                    if isinstance(parsed, dict):
+                        self.interpreter.dicts[var] = parsed
+                    elif isinstance(parsed, list):
+                        self.interpreter.lists[var] = parsed
+                    else:
+                        self.interpreter.variables[var] = parsed
+                except json.JSONDecodeError as e:
+                    self.interpreter.log_output(f"JSON parse error: {e}")
+            return "continue"
+
+        elif upper_text.startswith("STRINGIFY"):
+            m = re.match(r'STRINGIFY\s+(\w+)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+            if m:
+                import json
+                name = m.group(1).upper()
+                var = m.group(2).upper()
+                if name in self.interpreter.dicts:
+                    self.interpreter.variables[var] = json.dumps(self.interpreter.dicts[name])
+                elif name in self.interpreter.lists:
+                    self.interpreter.variables[var] = json.dumps(self.interpreter.lists[name])
+                else:
+                    self.interpreter.variables[var] = json.dumps(
+                        self.interpreter.variables.get(name, "")
+                    )
+            return "continue"
+
+        elif upper_text.startswith("GET"):
+            m = re.match(r'GET\s+(\w+)\.(\w+)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+            if m:
+                dict_name = m.group(1).upper()
+                key = m.group(2)
+                var = m.group(3).upper()
+                if dict_name in self.interpreter.dicts:
+                    self.interpreter.variables[var] = self.interpreter.dicts[dict_name].get(key, "")
+            return "continue"
+
+        self.interpreter.log_output("JSON syntax: JSON PARSE|STRINGIFY|GET ...")
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  REGEX — Regular expression operations
+    # ------------------------------------------------------------------
+
+    def _modern_regex(self, command):
+        """REGEX MATCH "pattern" IN expr INTO var
+        REGEX REPLACE "pattern" WITH "replacement" IN expr INTO var
+        REGEX FIND "pattern" IN expr INTO list_name
+        REGEX SPLIT "pattern" IN expr INTO list_name"""
+        text = re.sub(r'^REGEX\s+', '', command, flags=re.IGNORECASE).strip()
+        upper_text = text.upper()
+
+        if upper_text.startswith("MATCH"):
+            m = re.match(r'MATCH\s+"([^"]+)"\s+IN\s+(.+?)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+            if m:
+                pattern = m.group(1)
+                expr = str(self._eval_basic_expression(m.group(2).strip()))
+                var = m.group(3).upper()
+                match = re.search(pattern, expr)
+                if match:
+                    self.interpreter.variables[var] = match.group(0)
+                    self.interpreter.variables[var + "_POS"] = match.start()
+                    self.interpreter.match_flag = True
+                else:
+                    self.interpreter.variables[var] = ""
+                    self.interpreter.variables[var + "_POS"] = -1
+                    self.interpreter.match_flag = False
+            return "continue"
+
+        elif upper_text.startswith("REPLACE"):
+            m = re.match(
+                r'REPLACE\s+"([^"]+)"\s+WITH\s+"([^"]*)"\s+IN\s+(.+?)\s+INTO\s+(\w+)',
+                text, re.IGNORECASE
+            )
+            if m:
+                pattern = m.group(1)
+                replacement = m.group(2)
+                expr = str(self._eval_basic_expression(m.group(3).strip()))
+                var = m.group(4).upper()
+                self.interpreter.variables[var] = re.sub(pattern, replacement, expr)
+            return "continue"
+
+        elif upper_text.startswith("FIND"):
+            m = re.match(r'FIND\s+"([^"]+)"\s+IN\s+(.+?)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+            if m:
+                pattern = m.group(1)
+                expr = str(self._eval_basic_expression(m.group(2).strip()))
+                list_name = m.group(3).upper()
+                matches = re.findall(pattern, expr)
+                self.interpreter.lists[list_name] = matches
+                self.interpreter.variables[list_name + "_LENGTH"] = len(matches)
+            return "continue"
+
+        elif upper_text.startswith("SPLIT"):
+            m = re.match(r'SPLIT\s+"([^"]+)"\s+IN\s+(.+?)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+            if m:
+                pattern = m.group(1)
+                expr = str(self._eval_basic_expression(m.group(2).strip()))
+                list_name = m.group(3).upper()
+                self.interpreter.lists[list_name] = re.split(pattern, expr)
+                self.interpreter.variables[list_name + "_LENGTH"] = len(self.interpreter.lists[list_name])
+            return "continue"
+
+        self.interpreter.log_output("REGEX syntax: REGEX MATCH|REPLACE|FIND|SPLIT ...")
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  ENUM — Enumeration type
+    # ------------------------------------------------------------------
+
+    def _modern_enum(self, command):
+        """ENUM name = VAL1, VAL2, VAL3
+        Creates constants NAME.VAL1=0, NAME.VAL2=1, etc."""
+        text = re.sub(r'^ENUM\s+', '', command, flags=re.IGNORECASE).strip()
+        m = re.match(r'(\w+)\s*=\s*(.*)', text)
+        if not m:
+            self.interpreter.log_output("ENUM syntax: ENUM name = VAL1, VAL2, VAL3")
+            return "continue"
+        name = m.group(1).upper()
+        values = [v.strip().upper() for v in m.group(2).split(",") if v.strip()]
+        for i, val in enumerate(values):
+            key = f"{name}_{val}"
+            self.interpreter.variables[key] = i
+            self.interpreter.constants.add(key)
+        self.interpreter.variables[name + "_COUNT"] = len(values)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  STRUCT — Simple record type
+    # ------------------------------------------------------------------
+
+    def _modern_struct(self, command):
+        """STRUCT name = field1, field2, field3
+        Defines a template for structured data (stored as dict)."""
+        text = re.sub(r'^STRUCT\s+', '', command, flags=re.IGNORECASE).strip()
+        m = re.match(r'(\w+)\s*=\s*(.*)', text)
+        if not m:
+            self.interpreter.log_output("STRUCT syntax: STRUCT name = field1, field2, ...")
+            return "continue"
+        name = m.group(1).upper()
+        fields = [f.strip().upper() for f in m.group(2).split(",") if f.strip()]
+        # Store struct definition as a dict template
+        self.interpreter.variables["__STRUCT_" + name] = fields
+        return "continue"
+
+    def _modern_new(self, command):
+        """NEW struct_name AS var_name  — create instance of struct."""
+        m = re.match(r'NEW\s+(\w+)\s+AS\s+(\w+)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("NEW syntax: NEW struct_name AS var_name")
+            return "continue"
+        struct_name = m.group(1).upper()
+        var_name = m.group(2).upper()
+        fields = self.interpreter.variables.get("__STRUCT_" + struct_name)
+        if not fields:
+            self.interpreter.log_output(f"Undefined struct: {struct_name}")
+            return "continue"
+        instance = {f: 0 for f in fields}
+        self.interpreter.dicts[var_name] = instance
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  LAMBDA — Inline function expressions
+    # ------------------------------------------------------------------
+
+    def _modern_lambda(self, command):
+        """LAMBDA name(params) = expression
+        Creates a lightweight inline function."""
+        m = re.match(r'LAMBDA\s+(\w+)\s*\(([^)]*)\)\s*=\s*(.*)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("LAMBDA syntax: LAMBDA name(params) = expression")
+            return "continue"
+        name = m.group(1).upper()
+        params = [p.strip().upper() for p in m.group(2).split(",") if p.strip()]
+        body_expr = m.group(3).strip()
+        # Store as a function definition with a single RETURN line
+        self.interpreter.function_definitions[name] = {
+            "params": params,
+            "body_expr": body_expr,  # inline expression
+            "is_lambda": True,
+        }
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  MAP / FILTER / REDUCE — Functional list operations
+    # ------------------------------------------------------------------
+
+    def _modern_map(self, command):
+        """MAP func_name ON list_name INTO result_list"""
+        m = re.match(r'MAP\s+(\w+)\s+ON\s+(\w+)\s+INTO\s+(\w+)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("MAP syntax: MAP function ON list INTO result_list")
+            return "continue"
+        func_name = m.group(1).upper()
+        list_name = m.group(2).upper()
+        result_name = m.group(3).upper()
+
+        src = self.interpreter.lists.get(list_name, [])
+        result = []
+        for item in src:
+            val = self._apply_func(func_name, [item])
+            result.append(val if val is not None else item)
+        self.interpreter.lists[result_name] = result
+        self.interpreter.variables[result_name + "_LENGTH"] = len(result)
+        return "continue"
+
+    def _modern_filter(self, command):
+        """FILTER func_name ON list_name INTO result_list"""
+        m = re.match(r'FILTER\s+(\w+)\s+ON\s+(\w+)\s+INTO\s+(\w+)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("FILTER syntax: FILTER function ON list INTO result_list")
+            return "continue"
+        func_name = m.group(1).upper()
+        list_name = m.group(2).upper()
+        result_name = m.group(3).upper()
+
+        src = self.interpreter.lists.get(list_name, [])
+        result = []
+        for item in src:
+            val = self._apply_func(func_name, [item])
+            if val:
+                result.append(item)
+        self.interpreter.lists[result_name] = result
+        self.interpreter.variables[result_name + "_LENGTH"] = len(result)
+        return "continue"
+
+    def _modern_reduce(self, command):
+        """REDUCE func_name ON list_name INTO var [FROM initial]"""
+        m = re.match(
+            r'REDUCE\s+(\w+)\s+ON\s+(\w+)\s+INTO\s+(\w+)(?:\s+FROM\s+(.+))?',
+            command, re.IGNORECASE
+        )
+        if not m:
+            self.interpreter.log_output("REDUCE syntax: REDUCE function ON list INTO var [FROM initial]")
+            return "continue"
+        func_name = m.group(1).upper()
+        list_name = m.group(2).upper()
+        result_var = m.group(3).upper()
+        initial = self._eval_basic_expression(m.group(4).strip()) if m.group(4) else None
+
+        src = self.interpreter.lists.get(list_name, [])
+        if not src:
+            self.interpreter.variables[result_var] = initial if initial is not None else 0
+            return "continue"
+
+        if initial is not None:
+            acc = initial
+            start = 0
+        else:
+            acc = src[0]
+            start = 1
+
+        for i in range(start, len(src)):
+            acc = self._apply_func(func_name, [acc, src[i]])
+            if acc is None:
+                acc = 0
+
+        self.interpreter.variables[result_var] = acc
+        return "continue"
+
+    def _apply_func(self, func_name, args):
+        """Apply a user-defined function or lambda to arguments."""
+        defn = self.interpreter.function_definitions.get(func_name)
+        if defn:
+            if defn.get("is_lambda"):
+                # Lambda: evaluate body expression with params bound
+                saved = {}
+                for i, param in enumerate(defn["params"]):
+                    saved[param] = self.interpreter.variables.get(param)
+                    if i < len(args):
+                        self.interpreter.variables[param] = args[i]
+
+                result = self._eval_basic_expression(defn["body_expr"])
+
+                for param in defn["params"]:
+                    if saved.get(param) is not None:
+                        self.interpreter.variables[param] = saved[param]
+                    elif param in self.interpreter.variables:
+                        del self.interpreter.variables[param]
+                return result
+            else:
+                # Full function
+                str_args = [str(a) for a in args]
+                self._execute_sub_or_function(func_name, defn, str_args)
+                return self.interpreter.return_value
+
+        # Built-in simple functions
+        fn = func_name.upper()
+        if fn == "ABS" and args:
+            return abs(float(args[0]))
+        if fn == "INT" and args:
+            return int(float(args[0]))
+        if fn == "SQRT" and args:
+            return math.sqrt(float(args[0]))
+        if fn == "UPPER" and args:
+            return str(args[0]).upper()
+        if fn == "LOWER" and args:
+            return str(args[0]).lower()
+        if fn == "STR" and args:
+            return str(args[0])
+        if fn == "LEN" and args:
+            return len(str(args[0]))
+
+        return None
+
+    # ------------------------------------------------------------------
+    #  Helper: smart split respecting quotes and brackets
+    # ------------------------------------------------------------------
+
+    def _smart_split(self, text, delimiter=","):
+        """Split text on delimiter, respecting quoted strings and brackets."""
+        parts = []
+        current = []
+        in_string = False
+        depth = 0
+        for ch in text:
+            if ch == '"' and depth == 0:
+                in_string = not in_string
+                current.append(ch)
+            elif ch in "([" and not in_string:
+                depth += 1
+                current.append(ch)
+            elif ch in ")]" and not in_string:
+                depth -= 1
+                current.append(ch)
+            elif ch == delimiter and not in_string and depth == 0:
+                parts.append("".join(current))
+                current = []
+            else:
+                current.append(ch)
+        if current:
+            parts.append("".join(current))
+        return parts
+
+    # ------------------------------------------------------------------
+    #  Extended expression evaluation for new features
+    # ------------------------------------------------------------------
+
+    def _eval_basic_expression_extended(self, expr):  # noqa: C901
+        """Extended expression evaluation supporting new data types."""
+        expr = expr.strip()
+
+        # List literal: [1, 2, 3]
+        if expr.startswith("[") and expr.endswith("]"):
+            items = self._smart_split(expr[1:-1], ",")
+            return [self._eval_basic_expression(i.strip()) for i in items if i.strip()]
+
+        # List access: LISTNAME[index]
+        m = re.match(r'(\w+)\[(.+)\]', expr)
+        if m:
+            name = m.group(1).upper()
+            idx = int(float(self._eval_basic_expression(m.group(2))))
+            if name in self.interpreter.lists:
+                lst = self.interpreter.lists[name]
+                if 0 <= idx < len(lst):
+                    return lst[idx]
+                return ""
+
+        # Dict access: DICTNAME.key
+        m = re.match(r'(\w+)\.(\w+)', expr)
+        if m:
+            name = m.group(1).upper()
+            key = m.group(2)
+            if name in self.interpreter.dicts:
+                return self.interpreter.dicts[name].get(key, "")
+
+        # LENGTH(list_or_string)
+        m = re.match(r'LENGTH\((\w+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            if name in self.interpreter.lists:
+                return len(self.interpreter.lists[name])
+            if name in self.interpreter.dicts:
+                return len(self.interpreter.dicts[name])
+            val = self.interpreter.variables.get(name, "")
+            return len(str(val))
+
+        # KEYS(dict) / VALUES(dict)
+        m = re.match(r'KEYS\((\w+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            if name in self.interpreter.dicts:
+                return list(self.interpreter.dicts[name].keys())
+
+        m = re.match(r'VALUES\((\w+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            if name in self.interpreter.dicts:
+                return list(self.interpreter.dicts[name].values())
+
+        # HASKEY(dict, key)
+        m = re.match(r'HASKEY\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            key = self._eval_basic_expression(m.group(2).strip())
+            if name in self.interpreter.dicts:
+                return 1 if key in self.interpreter.dicts[name] else 0
+            return 0
+
+        # INDEXOF(list, value)
+        m = re.match(r'INDEXOF\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            val = self._eval_basic_expression(m.group(2).strip())
+            if name in self.interpreter.lists:
+                try:
+                    return self.interpreter.lists[name].index(val)
+                except ValueError:
+                    return -1
+            return -1
+
+        # CONTAINS(list_or_string, value)
+        m = re.match(r'CONTAINS\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            val = self._eval_basic_expression(m.group(2).strip())
+            if name in self.interpreter.lists:
+                return 1 if val in self.interpreter.lists[name] else 0
+            sv = str(self.interpreter.variables.get(name, ""))
+            return 1 if str(val) in sv else 0
+
+        # SLICE(list, start, end)
+        m = re.match(r'SLICE\((\w+)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            start = int(float(self._eval_basic_expression(m.group(2))))
+            end = int(float(self._eval_basic_expression(m.group(3))))
+            if name in self.interpreter.lists:
+                return self.interpreter.lists[name][start:end]
+            sv = str(self.interpreter.variables.get(name, ""))
+            return sv[start:end]
+
+        # JOIN(list, delimiter)
+        m = re.match(r'JOIN\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            delim = str(self._eval_basic_expression(m.group(2).strip()))
+            if name in self.interpreter.lists:
+                return delim.join(str(x) for x in self.interpreter.lists[name])
+
+        # SPLIT(string, delimiter)
+        m = re.match(r'SPLIT\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            s = str(self._eval_basic_expression(m.group(1).strip()))
+            delim = str(self._eval_basic_expression(m.group(2).strip()))
+            return s.split(delim)
+
+        # REPLACE$(string, old, new)
+        m = re.match(r'REPLACE\$?\((.+?)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            s = str(self._eval_basic_expression(m.group(1).strip()))
+            old = str(self._eval_basic_expression(m.group(2).strip()))
+            new = str(self._eval_basic_expression(m.group(3).strip()))
+            return s.replace(old, new)
+
+        # TRIM$(string)
+        m = re.match(r'TRIM\$?\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            return str(self._eval_basic_expression(m.group(1).strip())).strip()
+
+        # STARTSWITH(string, prefix)
+        m = re.match(r'STARTSWITH\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            s = str(self._eval_basic_expression(m.group(1).strip()))
+            prefix = str(self._eval_basic_expression(m.group(2).strip()))
+            return 1 if s.startswith(prefix) else 0
+
+        # ENDSWITH(string, suffix)
+        m = re.match(r'ENDSWITH\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            s = str(self._eval_basic_expression(m.group(1).strip()))
+            suffix = str(self._eval_basic_expression(m.group(2).strip()))
+            return 1 if s.endswith(suffix) else 0
+
+        # REPEAT$(string, count)
+        m = re.match(r'REPEAT\$\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            s = str(self._eval_basic_expression(m.group(1).strip()))
+            n = int(float(self._eval_basic_expression(m.group(2).strip())))
+            return s * n
+
+        # FORMAT$(value, format_spec)
+        m = re.match(r'FORMAT\$\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            val = self._eval_basic_expression(m.group(1).strip())
+            spec = str(self._eval_basic_expression(m.group(2).strip()))
+            try:
+                return format(val, spec)
+            except Exception:
+                return str(val)
+
+        # ISNUMBER(value)
+        m = re.match(r'ISNUMBER\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            val = self._eval_basic_expression(m.group(1).strip())
+            return 1 if isinstance(val, (int, float)) else 0
+
+        # ISSTRING(value)
+        m = re.match(r'ISSTRING\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            val = self._eval_basic_expression(m.group(1).strip())
+            return 1 if isinstance(val, str) else 0
+
+        # TONUM(value)
+        m = re.match(r'TONUM\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            val = self._eval_basic_expression(m.group(1).strip())
+            try:
+                f = float(val)
+                return int(f) if f == int(f) else f
+            except (ValueError, TypeError):
+                return 0
+
+        # TOSTR(value)
+        m = re.match(r'TOSTR\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            return str(self._eval_basic_expression(m.group(1).strip()))
+
+        # ROUND(value [, decimals])
+        m = re.match(r'ROUND\((.+?)(?:\s*,\s*(.+))?\)', expr, re.IGNORECASE)
+        if m:
+            val = float(self._eval_basic_expression(m.group(1).strip()))
+            decimals = int(float(self._eval_basic_expression(m.group(2).strip()))) if m.group(2) else 0
+            return round(val, decimals)
+
+        # FLOOR(value)
+        m = re.match(r'FLOOR\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            return math.floor(float(self._eval_basic_expression(m.group(1).strip())))
+
+        # POWER(base, exp)
+        m = re.match(r'POWER\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            base = float(self._eval_basic_expression(m.group(1).strip()))
+            exp = float(self._eval_basic_expression(m.group(2).strip()))
+            return base ** exp
+
+        # CLAMP(value, min, max)
+        m = re.match(r'CLAMP\((.+?)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            val = float(self._eval_basic_expression(m.group(1).strip()))
+            lo = float(self._eval_basic_expression(m.group(2).strip()))
+            hi = float(self._eval_basic_expression(m.group(3).strip()))
+            return max(lo, min(hi, val))
+
+        # LERP(a, b, t) — linear interpolation
+        m = re.match(r'LERP\((.+?)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            a = float(self._eval_basic_expression(m.group(1).strip()))
+            b = float(self._eval_basic_expression(m.group(2).strip()))
+            t = float(self._eval_basic_expression(m.group(3).strip()))
+            return a + (b - a) * t
+
+        # RANDOM(min, max)
+        m = re.match(r'RANDOM\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
+        if m:
+            lo = int(float(self._eval_basic_expression(m.group(1).strip())))
+            hi = int(float(self._eval_basic_expression(m.group(2).strip())))
+            return random.randint(lo, hi)
+
+        # PI, E constants
+        if expr.upper() == "PI":
+            return math.pi
+        if expr.upper() == "E":
+            return math.e
+        if expr.upper() == "TAU":
+            return math.tau
+        if expr.upper() == "INF":
+            return float("inf")
+
+        # FILEEXISTS(filename)
+        m = re.match(r'FILEEXISTS\((.+)\)', expr, re.IGNORECASE)
+        if m:
+            import os
+            fn = str(self._eval_basic_expression(m.group(1).strip()))
+            return 1 if os.path.exists(fn) else 0
+
+        # RESULT (function return value)
+        if expr.upper() == "RESULT":
+            return self.interpreter.return_value if self.interpreter.return_value is not None else 0
+
+        # ERROR$ (last error message)
+        if expr.upper() == "ERROR$":
+            return self.interpreter.last_error
+
+        # Signal that no extended feature matched — return the expr object itself
+        # so the caller can distinguish "not handled" from a legitimate result
+        return expr

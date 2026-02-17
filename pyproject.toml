@@ -40,6 +40,7 @@ Issues = "https://github.com/James-HoneyBadger/Time_Warp_II/issues"
 
 [project.scripts]
 timewarpii = "TimeWarpII:main"
+templecode = "core.cli:main"
 
 [project.optional-dependencies]
 test = [

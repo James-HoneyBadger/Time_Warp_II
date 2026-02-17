@@ -65,7 +65,7 @@ def save_settings(data: dict):
 class TempleCodeApp:
     """Main GUI application for Time Warp II."""
 
-    def __init__(self):
+    def __init__(self):  # type: ignore[no-untyped-def]
         import tkinter as tk
         from tkinter import scrolledtext, messagebox, filedialog
         from core.interpreter import TempleCodeInterpreter
@@ -73,6 +73,11 @@ class TempleCodeApp:
         from core.config import (
             THEMES, LINE_NUMBER_BG, FONT_SIZES, FONT_SIZE_ORDER,
             PRIORITY_FONTS, WELCOME_MESSAGE, KEYWORDS, INDENT_OPENERS,
+        )
+        from core.features.ide_features import (
+            WatchManager, Profiler, SnippetManager,
+            UndoHistoryManager, format_code, parse_imports,
+            build_import_graph, format_import_graph,
         )
 
         # Store module refs for use in methods
@@ -165,6 +170,19 @@ class TempleCodeApp:
         self._exec_slider = None
         self._turtle_slider = None
 
+        # Font family menu lazy-load flag
+        self._fonts_loaded = False
+
+        # IDE feature managers
+        self._watch_manager = WatchManager()
+        self._profiler = Profiler()
+        self._snippet_manager = SnippetManager()
+        self._undo_history = UndoHistoryManager()
+        self._format_code = format_code
+        self._parse_imports = parse_imports
+        self._build_import_graph = build_import_graph
+        self._format_import_graph = format_import_graph
+
         self._build_menus(SyntaxHighlightingText, LineNumberedText)
         self._build_layout(SyntaxHighlightingText, LineNumberedText)
         self._build_input_bar()
@@ -180,6 +198,10 @@ class TempleCodeApp:
         self.interpreter._input_entry_widget = self.input_entry
         self.interpreter._input_entry_bg = "#1e1e1e"
 
+        # Attach IDE features to interpreter
+        self.interpreter.watch_manager = self._watch_manager
+        self.interpreter.profiler = self._profiler
+
         # Configure output colour tags  (Feature 7)
         self._setup_output_tags()
 
@@ -188,12 +210,21 @@ class TempleCodeApp:
         self.apply_theme(self.current_theme)
         self.apply_font_size(self.current_font)
 
+        # Take initial undo snapshot
+        self._undo_history.snapshot(
+            self.editor_text.get("1.0", self.tk.END), "initial"
+        )
+
         # Feature 15: auto dark/light based on OS
         if self.auto_dark:
             self._auto_detect_dark_mode()
 
         # Start status bar updater (Feature 1)
+        self._status_bar_after_id = None
         self._update_status_bar()
+
+        # Ensure closing the window via the X button goes through exit_app
+        self.root.protocol("WM_DELETE_WINDOW", self.exit_app)
 
     # ==================================================================
     #  Persistence helper
@@ -259,13 +290,22 @@ class TempleCodeApp:
         # Feature 11: code folding
         edit_menu.add_command(label="Fold All Blocks", command=self.fold_all)
         edit_menu.add_command(label="Unfold All", command=self.unfold_all)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Format Code", command=self._format_editor_code,
+                              accelerator="Ctrl+Shift+F")
+        edit_menu.add_command(label="Insert Snippet...", command=self._show_snippet_picker,
+                              accelerator="Ctrl+J")
+        edit_menu.add_command(label="Manage Snippets...", command=self._show_snippet_manager)
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Undo History...", command=self._show_undo_history)
 
         # --- View ---  (Feature 10: split editor)
         view_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="View", menu=view_menu)
         self._split_var = tk.BooleanVar(value=False)
-        view_menu.add_checkbutton(label="Split Editor", variable=self._split_var,
-                                   command=self._toggle_split_editor)
+        view_menu.add_checkbutton(
+            label="Split Editor", variable=self._split_var,
+            command=self._toggle_split_editor)
         view_menu.add_separator()
         view_menu.add_command(label="Command Palette...", command=self.show_command_palette,
                               accelerator="Ctrl+Shift+P")
@@ -280,6 +320,8 @@ class TempleCodeApp:
         program_menu.add_command(label="Export Canvas as PNG...", command=self.export_canvas_png)
         program_menu.add_command(label="Export Canvas as SVG...", command=self.export_canvas_svg)
         program_menu.add_separator()
+        program_menu.add_command(label="Show Import Graph", command=self._show_import_graph)
+        program_menu.add_separator()
         examples_menu = tk.Menu(program_menu, tearoff=0)
         program_menu.add_cascade(label="Load Example", menu=examples_menu)
         for item in [
@@ -287,7 +329,7 @@ class TempleCodeApp:
             ("Turtle Graphics Spiral", "examples/templecode/spiral.tc"),
             ("Quiz (PILOT style)",     "examples/templecode/quiz.tc"),
             ("Number Guessing Game",   "examples/templecode/guess.tc"),
-            ("Mandelbrot (Turtle Art)","examples/templecode/mandelbrot.tc"),
+            ("Mandelbrot (Turtle Art)", "examples/templecode/mandelbrot.tc"),
             None,  # separator
             ("Calculator",             "examples/templecode/calculator.tc"),
             ("Countdown Timer",        "examples/templecode/countdown.tc"),
@@ -322,12 +364,26 @@ class TempleCodeApp:
             command=lambda: self.interpreter and self.interpreter.set_debug_mode(self._debug_var.get()),
         )
         debug_menu.add_separator()
+        debug_menu.add_command(label="Add Watch Expression...", command=self._add_watch_dialog)
+        debug_menu.add_command(label="Show Watches", command=self._show_watches)
+        debug_menu.add_command(label="Clear All Watches",
+                               command=lambda: (self._watch_manager.clear(),
+                                                self._output("👁  All watches cleared.\n", "out_ok")))
+        debug_menu.add_separator()
         debug_menu.add_command(label="Clear All Breakpoints",
                                command=lambda: self.interpreter and self.interpreter.breakpoints.clear())
         debug_menu.add_separator()
         debug_menu.add_command(label="Show Error History", command=self.show_error_history)
         debug_menu.add_command(label="Clear Error History",
                                command=lambda: setattr(self.interpreter, 'error_history', []) if self.interpreter else None)
+        debug_menu.add_separator()
+        # Profiler
+        self._profiler_var = tk.BooleanVar(value=False)
+        debug_menu.add_checkbutton(
+            label="Enable Profiler", variable=self._profiler_var,
+            command=lambda: setattr(self._profiler, 'enabled', self._profiler_var.get()),
+        )
+        debug_menu.add_command(label="Show Profiler Report", command=self._show_profiler_report)
 
         # --- Test ---
         test_menu = tk.Menu(menubar, tearoff=0)
@@ -365,9 +421,10 @@ class TempleCodeApp:
         prefs_menu.add_separator()
         # Feature 15: auto dark mode toggle
         self._auto_dark_var = tk.BooleanVar(value=self.auto_dark)
-        prefs_menu.add_checkbutton(label="Auto Dark/Light (follow OS)",
-                                    variable=self._auto_dark_var,
-                                    command=self._toggle_auto_dark)
+        prefs_menu.add_checkbutton(
+            label="Auto Dark/Light (follow OS)",
+            variable=self._auto_dark_var,
+            command=self._toggle_auto_dark)
 
         # --- About ---
         about_menu = tk.Menu(menubar, tearoff=0)
@@ -401,6 +458,14 @@ class TempleCodeApp:
             ("Toggle Split Editor",  self._toggle_split_editor),
             ("Export Canvas as PNG",  self.export_canvas_png),
             ("Export Canvas as SVG",  self.export_canvas_svg),
+            ("Show Import Graph",    self._show_import_graph),
+            ("Format Code",          self._format_editor_code),
+            ("Insert Snippet",       self._show_snippet_picker),
+            ("Manage Snippets",      self._show_snippet_manager),
+            ("Undo History",         self._show_undo_history),
+            ("Add Watch Expression", self._add_watch_dialog),
+            ("Show Watches",         self._show_watches),
+            ("Show Profiler Report", self._show_profiler_report),
             ("Run Smoke Test",       self.run_smoke_test),
             ("Show Error History",   self.show_error_history),
             ("Go to Line",           self.show_goto_line_dialog),
@@ -615,46 +680,52 @@ class TempleCodeApp:
             self._status_labels["cursor"].config(text=f"Ln {line}, Col {int(col)+1}")
         except Exception:
             pass
-        self.root.after(250, self._update_status_bar)
+        self._status_bar_after_id = self.root.after(250, self._update_status_bar)
 
     # ==================================================================
     #  Key bindings
     # ==================================================================
 
     def _bind_keys(self):
+        """Bind keyboard shortcuts to IDE actions."""
         r = self.root
-        r.bind("<F5>",              lambda e: self.run_code())
-        r.bind("<Control-n>",       lambda e: self.new_file())
-        r.bind("<Control-o>",       lambda e: self.load_file())
-        r.bind("<Control-s>",       lambda e: self.save_file_quick())
+        r.bind("<F5>", lambda e: self.run_code())
+        r.bind("<Control-n>", lambda e: self.new_file())
+        r.bind("<Control-o>", lambda e: self.load_file())
+        r.bind("<Control-s>", lambda e: self.save_file_quick())
         r.bind("<Control-Shift-S>", lambda e: self.save_file())
-        r.bind("<Control-q>",       lambda e: self.exit_app())
-        r.bind("<Control-z>",       lambda e: self.undo_text())
-        r.bind("<Control-y>",       lambda e: self.redo_text())
+        r.bind("<Control-q>", lambda e: self.exit_app())
+        r.bind("<Control-z>", lambda e: self.undo_text())
+        r.bind("<Control-y>", lambda e: self.redo_text())
         r.bind("<Control-Shift-Z>", lambda e: self.redo_text())
-        r.bind("<Control-a>",       lambda e: self.select_all())
-        r.bind("<Control-f>",       lambda e: self.show_find_dialog())
-        r.bind("<Control-h>",       lambda e: self.show_replace_dialog())
-        r.bind("<Control-g>",       lambda e: self.show_goto_line_dialog())
+        r.bind("<Control-a>", lambda e: self.select_all())
+        r.bind("<Control-f>", lambda e: self.show_find_dialog())
+        r.bind("<Control-h>", lambda e: self.show_replace_dialog())
+        r.bind("<Control-g>", lambda e: self.show_goto_line_dialog())
         r.bind("<Control-Shift-P>", lambda e: self.show_command_palette())  # Feature 6
-        r.bind("<Escape>",          lambda e: self.stop_code())
+        r.bind("<Escape>", lambda e: self.stop_code())
 
         # Feature 8: Ctrl+scroll zoom
-        r.bind("<Control-Button-4>",  lambda e: self._zoom(1))   # scroll up
-        r.bind("<Control-Button-5>",  lambda e: self._zoom(-1))  # scroll down
+        r.bind("<Control-Button-4>", lambda e: self._zoom(1))   # scroll up
+        r.bind("<Control-Button-5>", lambda e: self._zoom(-1))  # scroll down
         r.bind("<Control-MouseWheel>", lambda e: self._zoom(1 if e.delta > 0 else -1))
-        r.bind("<Control-plus>",      lambda e: self._zoom(1))
-        r.bind("<Control-minus>",     lambda e: self._zoom(-1))
-        r.bind("<Control-equal>",     lambda e: self._zoom(1))
+        r.bind("<Control-plus>", lambda e: self._zoom(1))
+        r.bind("<Control-minus>", lambda e: self._zoom(-1))
+        r.bind("<Control-equal>", lambda e: self._zoom(1))
+
+        # New feature key bindings
+        r.bind("<Control-Shift-F>", lambda e: self._format_editor_code())
+        r.bind("<Control-j>", lambda e: self._show_snippet_picker())
+        r.bind("<Control-J>", lambda e: self._show_snippet_picker())
 
         # Feature 3: auto-indent  /  Feature 5: tab-completion
         # We bind to the inner text widget, not the frame
         text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
         text_w.bind("<Return>", self._on_editor_return)
-        text_w.bind("<Tab>",    self._on_tab)
+        text_w.bind("<Tab>", self._on_tab)
 
         # Feature 4: highlight current line on cursor move + update status bar
-        text_w.bind("<KeyRelease>",  lambda e: (self._highlight_current_line(), self._mark_dirty()))
+        text_w.bind("<KeyRelease>", lambda e: (self._highlight_current_line(), self._mark_dirty()))
         text_w.bind("<ButtonRelease-1>", lambda e: self._highlight_current_line())
 
         # Right-click context menus
@@ -749,9 +820,10 @@ class TempleCodeApp:
 
         popup.geometry(f"+{x}+{y}")
 
-        lb = tk.Listbox(popup, font=("Courier", 10), height=min(len(matches), 8),
-                         bg="#252526", fg="#d4d4d4", selectbackground="#094771",
-                         selectforeground="white", bd=1, relief=tk.SOLID)
+        lb = tk.Listbox(
+            popup, font=("Courier", 10), height=min(len(matches), 8),
+            bg="#252526", fg="#d4d4d4", selectbackground="#094771",
+            selectforeground="white", bd=1, relief=tk.SOLID)
         lb.pack()
         for m in matches[:20]:
             lb.insert(tk.END, m)
@@ -787,6 +859,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def show_command_palette(self):
+        """Display a searchable command palette for quick access to IDE actions."""
         tk = self.tk
         dlg = tk.Toplevel(self.root)
         dlg.title("Command Palette")
@@ -805,10 +878,11 @@ class TempleCodeApp:
         entry.pack(fill=tk.X, padx=10, pady=(10, 5))
         entry.focus()
 
-        lb = tk.Listbox(dlg, font=("Courier", 11),
-                         bg=theme["text_bg"], fg=theme["text_fg"],
-                         selectbackground="#094771", selectforeground="white",
-                         bd=0, highlightthickness=0)
+        lb = tk.Listbox(
+            dlg, font=("Courier", 11),
+            bg=theme["text_bg"], fg=theme["text_fg"],
+            selectbackground="#094771", selectforeground="white",
+            bd=0, highlightthickness=0)
         lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
         all_cmds = self._palette_commands
@@ -947,6 +1021,7 @@ class TempleCodeApp:
             text_w.tag_configure(tag, elide=True)
 
     def unfold_all(self):
+        """Remove all code-folding tags to expand collapsed regions."""
         text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
         for tag in list(text_w.tag_names()):
             if tag.startswith("fold_"):
@@ -1112,6 +1187,7 @@ class TempleCodeApp:
             self._output(f"❌ Failed to open {filepath}: {e}\n", "out_error")
 
     def new_file(self):
+        """Clear the editor and start a new file, prompting to discard unsaved changes."""
         if self._dirty:
             if not self.messagebox.askyesno("Unsaved Changes",
                                             "You have unsaved changes. Discard?"):
@@ -1124,6 +1200,7 @@ class TempleCodeApp:
         self._output("📄 New file created\n")
 
     def load_file(self):
+        """Open a file dialog to select and load a TempleCode program."""
         filename = self.filedialog.askopenfilename(
             title="Open Program File",
             filetypes=[("TempleCode Files", "*.tc"), ("All Files", "*.*")],
@@ -1132,6 +1209,7 @@ class TempleCodeApp:
             self._open_path(filename)
 
     def save_file(self):
+        """Open a Save As dialog and write the editor contents to a file."""
         filename = self.filedialog.asksaveasfilename(
             title="Save Program File", defaultextension=".tc",
             filetypes=[("TempleCode Files", "*.tc"), ("All Files", "*.*")],
@@ -1165,6 +1243,7 @@ class TempleCodeApp:
             self.save_file()
 
     def load_example(self, filepath):
+        """Load an example TempleCode program from the given filepath."""
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -1177,11 +1256,16 @@ class TempleCodeApp:
             self._output(f"❌ Failed to load example: {e}\n", "out_error")
 
     def exit_app(self):
+        """Save state and exit, prompting if there are unsaved changes."""
         self._save()
         if self._dirty:
             if not self.messagebox.askyesno("Unsaved Changes",
                                             "You have unsaved changes. Exit anyway?"):
                 return
+        # Cancel the recurring status bar updater before destroying the window
+        if getattr(self, '_status_bar_after_id', None) is not None:
+            self.root.after_cancel(self._status_bar_after_id)
+            self._status_bar_after_id = None
         self.root.destroy()
 
     # ==================================================================
@@ -1192,6 +1276,23 @@ class TempleCodeApp:
         if not self._dirty:
             self._dirty = True
             self._update_title()
+        # Schedule an undo snapshot (debounced via after)
+        if hasattr(self, '_undo_snapshot_after_id'):
+            try:
+                self.root.after_cancel(self._undo_snapshot_after_id)
+            except Exception:
+                pass
+        self._undo_snapshot_after_id = self.root.after(
+            1000, self._take_undo_snapshot
+        )
+
+    def _take_undo_snapshot(self):
+        """Take a snapshot for the undo history manager."""
+        try:
+            content = self.editor_text.get("1.0", self.tk.END)
+            self._undo_history.snapshot(content, "edit")
+        except Exception:
+            pass
 
     def _update_title(self):
         base = "Time Warp II"
@@ -1212,30 +1313,36 @@ class TempleCodeApp:
             pass
 
     def undo_text(self):
+        """Undo the last edit operation in the editor."""
         try:
             self.editor_text.edit_undo()
         except Exception:
             pass
 
     def redo_text(self):
+        """Redo the last undone edit operation in the editor."""
         try:
             self.editor_text.edit_redo()
         except Exception:
             pass
 
     def select_all(self):
+        """Select all text in the editor."""
         self.editor_text.tag_add("sel", "1.0", self.tk.END)
         self.editor_text.mark_set("insert", "1.0")
         self.editor_text.see("insert")
         return "break"
 
     def clear_editor(self):
+        """Delete all text from the editor widget."""
         self.editor_text.delete("1.0", self.tk.END)
 
     def clear_output(self):
+        """Delete all text from the output panel."""
         self.output_text.delete("1.0", self.tk.END)
 
     def clear_canvas(self):
+        """Clear the turtle graphics canvas and reset the turtle state."""
         self.turtle_canvas.delete("all")
         if hasattr(self.interpreter, 'turtle_graphics') and self.interpreter.turtle_graphics:
             tg = self.interpreter.turtle_graphics
@@ -1251,6 +1358,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def run_code(self):
+        """Execute the current editor contents as a TempleCode program."""
         code = self.editor_text.get("1.0", self.tk.END)
         self.output_text.delete("1.0", self.tk.END)
         self._output("🚀 Running program...\n\n", "out_ok")
@@ -1284,14 +1392,15 @@ class TempleCodeApp:
             self._output("\n🛑 Program stopped by user.\n", "out_warn")
 
     def _submit_input(self):
+        """Submit input text to the running interpreter or queue it."""
         value = self.input_entry.get()
         self.input_entry.delete(0, self.tk.END)
 
         # If the interpreter is blocking on input, signal it
         if (self.interpreter
                 and hasattr(self.interpreter, '_input_wait_var')
-                and self.interpreter._input_wait_var is not None):
-            self.interpreter._input_wait_var.set(value)
+                and self.interpreter._input_wait_var is not None):  # pylint: disable=protected-access
+            self.interpreter._input_wait_var.set(value)  # pylint: disable=protected-access
         else:
             # Not waiting — just queue it for later use
             self.input_buffer.append(value)
@@ -1317,10 +1426,26 @@ class TempleCodeApp:
             return "#505050"
 
     def apply_theme(self, theme_key):
+        """Apply the specified color theme to all editor and UI widgets."""
         tk = self.tk
         theme = self.THEMES[theme_key]
 
-        # Editor text
+        self._apply_theme_editors(tk, theme, theme_key)
+        self._apply_theme_panels(tk, theme)
+        self._apply_theme_buttons(tk, theme)
+        self._apply_theme_statusbar(theme)
+        self._apply_theme_output_tags(theme)
+
+        # Update status bar theme label
+        if "theme" in self._status_labels:
+            self._status_labels["theme"].config(text=theme["name"])
+
+        self.current_theme = theme_key
+        self._save()
+        self._highlight_current_line()
+
+    def _apply_theme_editors(self, tk, theme, theme_key):
+        """Apply theme colours to editor and output widgets."""
         for editor in (self.editor_text, self.editor_text2):
             if editor is None:
                 continue
@@ -1348,12 +1473,17 @@ class TempleCodeApp:
         self.turtle_canvas.config(
             bg=theme["canvas_bg"], highlightbackground=theme["canvas_border"],
         )
+
+    def _apply_theme_panels(self, tk, theme):
+        """Apply theme colours to panels, frames, inputs, and labels."""
         self.root.config(bg=theme["root_bg"])
         for panel in (self.left_panel, self.right_panel):
             panel.config(bg=theme["frame_bg"])
-        for frame in (self.editor_frame, self.editor_frame2, self.output_frame, self.graphics_frame):
+        for frame in (self.editor_frame, self.editor_frame2,
+                      self.output_frame, self.graphics_frame):
             if frame:
-                frame.config(bg=theme["editor_frame_bg"], fg=theme["editor_frame_fg"])
+                frame.config(bg=theme["editor_frame_bg"],
+                             fg=theme["editor_frame_fg"])
         for f in (self.input_frame, self.button_frame, self._speed_frame):
             if f:
                 f.config(bg=theme["frame_bg"])
@@ -1363,7 +1493,7 @@ class TempleCodeApp:
         )
         # Keep interpreter aware of the current input-bar bg colour
         if self.interpreter:
-            self.interpreter._input_entry_bg = theme["input_bg"]
+            self.interpreter._input_entry_bg = theme["input_bg"]  # pylint: disable=protected-access
 
         # Labels in input frame / speed frame
         for container in (self.input_frame, self._speed_frame):
@@ -1371,12 +1501,22 @@ class TempleCodeApp:
                 continue
             for w in container.winfo_children():
                 if isinstance(w, tk.Label):
-                    w.config(bg=theme["frame_bg"], fg=theme.get("text_fg", "#aaa"))
+                    w.config(bg=theme["frame_bg"],
+                             fg=theme.get("text_fg", "#aaa"))
                 elif isinstance(w, tk.Scale):
-                    w.config(bg=theme["frame_bg"], fg=theme.get("text_fg", "#aaa"),
+                    w.config(bg=theme["frame_bg"],
+                             fg=theme.get("text_fg", "#aaa"),
                              troughcolor=theme["text_bg"])
 
-        # Toolbar buttons (Feature 9: hover uses theme colour)
+        # Paned windows
+        for pw in (self.main_paned, self.right_paned, self.editor_paned):
+            try:
+                pw.config(bg=theme["frame_bg"])
+            except Exception:
+                pass
+
+    def _apply_theme_buttons(self, tk, theme):
+        """Apply theme colours to toolbar and submit buttons."""
         btn_bg = theme.get("btn_bg", theme.get("input_bg", "#3e3e3e"))
         btn_fg = theme.get("btn_fg", theme.get("input_fg", "#d4d4d4"))
         for w in self.button_frame.winfo_children():
@@ -1387,22 +1527,19 @@ class TempleCodeApp:
                 else:
                     w.config(bg=btn_bg, fg=btn_fg)
                     # Re-bind hover with new theme colour
-                    w.bind("<Enter>", lambda e, b=w, c=btn_bg: b.config(bg=self._lighter(c)))
-                    w.bind("<Leave>", lambda e, b=w, c=btn_bg: b.config(bg=c))
+                    w.bind("<Enter>",
+                           lambda e, b=w, c=btn_bg: b.config(
+                               bg=self._lighter(c)))
+                    w.bind("<Leave>",
+                           lambda e, b=w, c=btn_bg: b.config(bg=c))
 
         # Submit button
         for w in self.input_frame.winfo_children():
             if isinstance(w, tk.Button):
                 w.config(bg=btn_bg, fg=btn_fg)
 
-        # Paned windows
-        for pw in (self.main_paned, self.right_paned, self.editor_paned):
-            try:
-                pw.config(bg=theme["frame_bg"])
-            except Exception:
-                pass
-
-        # Status bar (Feature 1)
+    def _apply_theme_statusbar(self, theme):
+        """Apply theme colours to the status bar."""
         sb_bg = theme.get("statusbar_bg", "#007acc")
         sb_fg = theme.get("statusbar_fg", "#ffffff")
         if self.status_bar:
@@ -1410,20 +1547,17 @@ class TempleCodeApp:
             for lbl in self._status_labels.values():
                 lbl.config(bg=sb_bg, fg=sb_fg)
 
-        # Output colour tags (Feature 7)
-        self.output_text.tag_configure("out_error", foreground=theme.get("output_error", "#f44747"))
-        self.output_text.tag_configure("out_warn",  foreground=theme.get("output_warn",  "#cca700"))
-        self.output_text.tag_configure("out_ok",    foreground=theme.get("output_ok",    "#6a9955"))
-
-        # Update status bar theme label
-        if "theme" in self._status_labels:
-            self._status_labels["theme"].config(text=theme["name"])
-
-        self.current_theme = theme_key
-        self._save()
-        self._highlight_current_line()
+    def _apply_theme_output_tags(self, theme):
+        """Apply theme colours to output text tags."""
+        self.output_text.tag_configure(
+            "out_error", foreground=theme.get("output_error", "#f44747"))
+        self.output_text.tag_configure(
+            "out_warn", foreground=theme.get("output_warn", "#cca700"))
+        self.output_text.tag_configure(
+            "out_ok", foreground=theme.get("output_ok", "#6a9955"))
 
     def apply_font_size(self, size_key):
+        """Apply the specified font size preset to editor and output widgets."""
         sz = self.FONT_SIZES[size_key]
         for editor in (self.editor_text, self.editor_text2):
             if editor is None:
@@ -1439,6 +1573,7 @@ class TempleCodeApp:
         self._save()
 
     def apply_font_family(self, family):
+        """Apply the specified font family to editor and output widgets."""
         sz = self.FONT_SIZES[self.current_font]
         for editor in (self.editor_text, self.editor_text2):
             if editor is None:
@@ -1481,6 +1616,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def show_find_dialog(self):
+        """Display a Find dialog for searching text in the editor."""
         tk = self.tk
         dlg = tk.Toplevel(self.root)
         dlg.title("Find")
@@ -1534,6 +1670,7 @@ class TempleCodeApp:
         dlg.bind('<Escape>', lambda e: dlg.destroy())
 
     def show_replace_dialog(self):
+        """Display a Find & Replace dialog for the editor."""
         tk = self.tk
         dlg = tk.Toplevel(self.root)
         dlg.title("Replace")
@@ -1593,6 +1730,7 @@ class TempleCodeApp:
         dlg.bind('<Escape>', lambda e: dlg.destroy())
 
     def show_error_history(self):
+        """Display a window listing all errors from the last interpretation."""
         if not self.interpreter or not self.interpreter.error_history:
             self.messagebox.showinfo("Error History", "No errors recorded.")
             return
@@ -1607,6 +1745,7 @@ class TempleCodeApp:
         tw.config(state=tk.DISABLED)
 
     def show_about(self):
+        """Display the About dialog with version and credits."""
         sep = "-" * 32
         self.messagebox.showinfo("Time Warp II", (
             f"{sep}\n"
@@ -1636,6 +1775,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def run_smoke_test(self):
+        """Run a quick smoke test to verify interpreter functionality."""
         tk = self.tk
         self.output_text.delete("1.0", tk.END)
         self._output("🧪 Running smoke test...\n")
@@ -1705,6 +1845,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def show_goto_line_dialog(self):
+        """Display a dialog to jump to a specific line number."""
         tk = self.tk
         dlg = tk.Toplevel(self.root)
         dlg.title("Go to Line")
@@ -1739,6 +1880,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def show_quick_reference(self):
+        """Display a scrollable quick-reference for TempleCode commands."""
         tk = self.tk
         win = tk.Toplevel(self.root)
         win.title("TempleCode Quick Reference")
@@ -1846,6 +1988,7 @@ class TempleCodeApp:
         tw.config(state=tk.DISABLED)
 
     def show_keyboard_shortcuts(self):
+        """Display a dialog listing all keyboard shortcuts."""
         shortcuts = (
             "Keyboard Shortcuts\n"
             "──────────────────────────\n\n"
@@ -1870,10 +2013,402 @@ class TempleCodeApp:
         self.messagebox.showinfo("Keyboard Shortcuts", shortcuts)
 
     # ==================================================================
+    #  Watch Expressions (Debug)
+    # ==================================================================
+
+    def _add_watch_dialog(self):
+        """Prompt the user to add a watch expression."""
+        from tkinter import simpledialog  # noqa: C0415
+        expr = simpledialog.askstring(
+            "Add Watch", "Variable name or expression to watch:",
+            parent=self.root,
+        )
+        if expr:
+            self._watch_manager.add(expr)
+            self._output(f"👁  Watch added: {expr}\n", "out_ok")
+
+    def _show_watches(self):
+        """Display current watch expression values in a dialog."""
+        tk = self.tk
+        win = tk.Toplevel(self.root)
+        win.title("Watch Expressions")
+        win.geometry("500x350")
+        win.transient(self.root)
+
+        tw = self.scrolledtext.ScrolledText(win, wrap=tk.WORD, font=("Courier", 10))
+        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        if not self._watch_manager.expressions:
+            tw.insert(tk.END, "(no watch expressions set)\n\nUse Debug → Add Watch Expression to add one.")
+        else:
+            tw.insert(tk.END, "═══ WATCH EXPRESSIONS ═══\n\n")
+            pairs = self._watch_manager.evaluate_all(self.interpreter)
+            for expr, val in pairs:
+                tw.insert(tk.END, f"  {expr} = {val}\n")
+            tw.insert(tk.END, "\n═══ ALL VARIABLES ═══\n\n")
+            for k, v in sorted(self.interpreter.variables.items()):
+                tw.insert(tk.END, f"  {k} = {v!r}\n")
+
+        tw.config(state=tk.DISABLED)
+
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        tk.Button(btn_frame, text="Add Watch", command=lambda: (
+            self._add_watch_dialog(), win.destroy(), self._show_watches()
+        )).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Clear All", command=lambda: (
+            self._watch_manager.clear(), win.destroy(),
+            self._output("👁  All watches cleared.\n", "out_ok")
+        )).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Refresh", command=lambda: (
+            win.destroy(), self._show_watches()
+        )).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
+
+    # ==================================================================
+    #  Program Profiler
+    # ==================================================================
+
+    def _show_profiler_report(self):
+        """Display the profiler report in a scrollable window."""
+        tk = self.tk
+        win = tk.Toplevel(self.root)
+        win.title("Profiler Report")
+        win.geometry("700x500")
+        win.transient(self.root)
+
+        tw = self.scrolledtext.ScrolledText(win, wrap=tk.NONE, font=("Courier", 10))
+        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        if not self._profiler.get_stats():
+            tw.insert(tk.END, "No profiling data.\n\n"
+                      "Enable the profiler via Debug → Enable Profiler,\n"
+                      "then run a program.")
+        else:
+            tw.insert(tk.END, self._profiler.format_report())
+
+        tw.config(state=tk.DISABLED)
+
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        tk.Button(btn_frame, text="Reset", command=lambda: (
+            self._profiler.reset(),
+            self._output("📊 Profiler data cleared.\n", "out_ok"),
+            win.destroy()
+        )).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
+
+    # ==================================================================
+    #  Code Formatter
+    # ==================================================================
+
+    def _format_editor_code(self):
+        """Format / auto-indent the code in the editor."""
+        text_w = self.editor_text
+        source = text_w.get("1.0", self.tk.END)
+        if not source.strip():
+            return
+
+        formatted = self._format_code(source)
+
+        # Replace editor content
+        cursor_pos = text_w.index(self.tk.INSERT)
+        text_w.delete("1.0", self.tk.END)
+        text_w.insert("1.0", formatted.rstrip("\n"))
+
+        # Restore cursor
+        try:
+            text_w.mark_set(self.tk.INSERT, cursor_pos)
+            text_w.see(cursor_pos)
+        except Exception:
+            pass
+
+        self._mark_dirty()
+        self._output("✨ Code formatted.\n", "out_ok")
+
+    # ==================================================================
+    #  Snippet Manager
+    # ==================================================================
+
+    def _show_snippet_picker(self):
+        """Show a quick-pick list of snippets to insert."""
+        tk = self.tk
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Insert Snippet")
+        dlg.geometry("450x400")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Select a snippet to insert:").pack(padx=10, pady=(10, 5), anchor="w")
+
+        # Filter entry
+        filter_var = tk.StringVar()
+        filter_entry = tk.Entry(dlg, textvariable=filter_var)
+        filter_entry.pack(fill=tk.X, padx=10, pady=(0, 5))
+        filter_entry.focus()
+
+        # Listbox
+        list_frame = tk.Frame(dlg)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Courier", 10))
+        listbox.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        snippets = self._snippet_manager.all_snippets()
+        snippet_keys = sorted(snippets.keys())
+
+        def refresh_list(*_args):
+            listbox.delete(0, tk.END)
+            filt = filter_var.get().lower()
+            for key in snippet_keys:
+                snip = snippets[key]
+                label = f"{snip.get('prefix', ''):10s}  {snip.get('label', key)}"
+                if filt and filt not in label.lower() and filt not in key.lower():
+                    continue
+                listbox.insert(tk.END, label)
+
+        filter_var.trace_add("write", refresh_list)
+        refresh_list()
+
+        # Description label
+        desc_label = tk.Label(dlg, text="", wraplength=400, anchor="w", justify="left")
+        desc_label.pack(fill=tk.X, padx=10, pady=5)
+
+        def on_select(_event=None):
+            sel = listbox.curselection()
+            if not sel:
+                return
+            # Map back to key
+            text = listbox.get(sel[0])
+            prefix = text[:10].strip()
+            for key in snippet_keys:
+                if snippets[key].get("prefix", "") == prefix:
+                    snip = snippets[key]
+                    desc_label.config(text=snip.get("description", ""))
+                    break
+
+        listbox.bind("<<ListboxSelect>>", on_select)
+
+        def insert_selected():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            text = listbox.get(sel[0])
+            prefix = text[:10].strip()
+            for key in snippet_keys:
+                if snippets[key].get("prefix", "") == prefix:
+                    body = snippets[key].get("body", "")
+                    self.editor_text.insert(self.tk.INSERT, body)
+                    self._mark_dirty()
+                    self._output(f"✂️  Snippet inserted: {snippets[key].get('label', key)}\n", "out_ok")
+                    dlg.destroy()
+                    return
+
+        tk.Button(dlg, text="Insert", command=insert_selected).pack(side=tk.LEFT, padx=10, pady=10)
+        tk.Button(dlg, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT, padx=10, pady=10)
+        listbox.bind("<Double-Button-1>", lambda e: insert_selected())
+        dlg.bind("<Return>", lambda e: insert_selected())
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    def _show_snippet_manager(self):
+        """Show a dialog to manage (add/edit/delete) user snippets."""
+        tk = self.tk
+        win = tk.Toplevel(self.root)
+        win.title("Manage Snippets")
+        win.geometry("600x500")
+        win.transient(self.root)
+
+        # Top: list of snippets
+        list_frame = tk.LabelFrame(win, text="Snippets", padx=5, pady=5)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Courier", 10))
+        listbox.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        snippets = self._snippet_manager.all_snippets()
+
+        def refresh():
+            nonlocal snippets
+            snippets = self._snippet_manager.all_snippets()
+            listbox.delete(0, tk.END)
+            for key in sorted(snippets.keys()):
+                s = snippets[key]
+                builtin = " (built-in)" if key in self._snippet_manager.BUILTIN_SNIPPETS and key not in self._snippet_manager._user_snippets else ""
+                listbox.insert(tk.END, f"{s.get('prefix', ''):10s}  {s.get('label', key)}{builtin}")
+
+        refresh()
+
+        # Buttons
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        def add_snippet():
+            self._snippet_edit_dialog(win, callback=refresh)
+
+        def delete_snippet():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            key = sorted(snippets.keys())[sel[0]]
+            if self._snippet_manager.remove(key):
+                self._output(f"🗑  Snippet removed: {key}\n", "out_ok")
+            refresh()
+
+        tk.Button(btn_frame, text="Add New", command=add_snippet).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Delete Selected", command=delete_snippet).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def _snippet_edit_dialog(self, parent, callback=None):
+        """Show a dialog to add a new snippet."""
+        tk = self.tk
+        dlg = tk.Toplevel(parent)
+        dlg.title("Add Snippet")
+        dlg.geometry("450x400")
+        dlg.transient(parent)
+        dlg.grab_set()
+
+        fields = {}
+        for label_text, key in [("Key (unique ID):", "key"), ("Label:", "label"),
+                                ("Prefix (trigger):", "prefix"), ("Description:", "description")]:
+            tk.Label(dlg, text=label_text).pack(padx=10, pady=(5, 0), anchor="w")
+            var = tk.StringVar()
+            tk.Entry(dlg, textvariable=var).pack(fill=tk.X, padx=10)
+            fields[key] = var
+
+        tk.Label(dlg, text="Body (code):").pack(padx=10, pady=(5, 0), anchor="w")
+        body_text = tk.Text(dlg, height=8, font=("Courier", 10))
+        body_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 5))
+
+        def save():
+            key = fields["key"].get().strip()
+            label = fields["label"].get().strip()
+            prefix = fields["prefix"].get().strip()
+            desc = fields["description"].get().strip()
+            body = body_text.get("1.0", tk.END).rstrip("\n")
+            if not key or not body:
+                self.messagebox.showwarning("Missing Fields", "Key and body are required.", parent=dlg)
+                return
+            self._snippet_manager.add(key, label or key, prefix or key, body, desc)
+            self._output(f"✂️  Snippet saved: {label or key}\n", "out_ok")
+            dlg.destroy()
+            if callback:
+                callback()
+
+        tk.Button(dlg, text="Save", command=save).pack(side=tk.LEFT, padx=10, pady=10)
+        tk.Button(dlg, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT, padx=10, pady=10)
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+    # ==================================================================
+    #  Undo/Redo History Viewer
+    # ==================================================================
+
+    def _show_undo_history(self):
+        """Show a dialog listing undo history entries."""
+        tk = self.tk
+        win = tk.Toplevel(self.root)
+        win.title("Undo History")
+        win.geometry("500x400")
+        win.transient(self.root)
+
+        history = self._undo_history.get_history_list()
+
+        list_frame = tk.Frame(win)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Courier", 10))
+        listbox.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        if not history:
+            listbox.insert(tk.END, "(no history)")
+        else:
+            import datetime  # noqa: C0415
+            for entry in history:
+                ts = datetime.datetime.fromtimestamp(entry["timestamp"]).strftime("%H:%M:%S")
+                marker = " ◀" if entry["current"] else ""
+                listbox.insert(
+                    tk.END,
+                    f"#{entry['index']:3d}  {ts}  {entry['description']:12s}  "
+                    f"({entry['length']} chars){marker}"
+                )
+            # Scroll to current entry
+            for entry in history:
+                if entry["current"]:
+                    listbox.see(entry["index"])
+                    listbox.selection_set(entry["index"])
+
+        def jump_to():
+            sel = listbox.curselection()
+            if not sel:
+                return
+            content = self._undo_history.jump_to(sel[0])
+            if content is not None:
+                self.editor_text.delete("1.0", self.tk.END)
+                self.editor_text.insert("1.0", content.rstrip("\n"))
+                self._mark_dirty()
+                self._output(f"↩️  Restored to history #{sel[0]}\n", "out_ok")
+            win.destroy()
+
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        tk.Button(btn_frame, text="Restore Selected", command=jump_to).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Clear History", command=lambda: (
+            self._undo_history.clear(), win.destroy(),
+            self._output("🗑  Undo history cleared.\n", "out_ok")
+        )).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
+        listbox.bind("<Double-Button-1>", lambda e: jump_to())
+
+    # ==================================================================
+    #  Import Graph Visualization
+    # ==================================================================
+
+    def _show_import_graph(self):
+        """Parse IMPORT statements from editor code and display dependency graph."""
+        tk = self.tk
+        source = self.editor_text.get("1.0", self.tk.END)
+
+        imports = self._parse_imports(source)
+
+        win = tk.Toplevel(self.root)
+        win.title("Import Dependency Graph")
+        win.geometry("600x400")
+        win.transient(self.root)
+
+        tw = self.scrolledtext.ScrolledText(win, wrap=tk.NONE, font=("Courier", 10))
+        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        if not imports:
+            tw.insert(tk.END, "No IMPORT statements found in the current editor text.\n\n"
+                      "Add IMPORT \"filename.tc\" to your code to use this feature.")
+        else:
+            # If we have a current file, build full graph
+            if self.current_file_path and os.path.isfile(self.current_file_path):
+                graph = self._build_import_graph(self.current_file_path)
+                tw.insert(tk.END, self._format_import_graph(graph))
+            else:
+                # Just show the direct imports
+                tw.insert(tk.END, "═══ IMPORTS (current file) ═══\n\n")
+                for imp in imports:
+                    tw.insert(tk.END, f"  └── {imp}\n")
+                tw.insert(tk.END, f"\n{len(imports)} import(s) found.\n"
+                          "Save your file to enable full dependency graph traversal.")
+
+        tw.config(state=tk.DISABLED)
+        tk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 10))
+
+    # ==================================================================
     #  Main loop
     # ==================================================================
 
     def run(self):
+        """Start the Tkinter main event loop."""
         self.root.mainloop()
 
 
@@ -1882,6 +2417,7 @@ class TempleCodeApp:
 # ---------------------------------------------------------------------------
 
 def main():
+    """Application entry point: create and run the TempleCode IDE."""
     print("🚀 Launching Time Warp II...")
     try:
         app = TempleCodeApp()

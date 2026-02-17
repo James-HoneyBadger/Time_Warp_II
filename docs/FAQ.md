@@ -23,9 +23,9 @@ Yes! Time Warp II is open-source and completely free to use.
 
 ### What platforms does it support?
 
-- **Windows** (Python 3.9+)
-- **macOS** (Python 3.9+)
-- **Linux** (Python 3.9+)
+- **Windows** (Python 3.10+)
+- **macOS** (Python 3.10+)
+- **Linux** (Python 3.10+)
 
 ### Can I use it offline?
 
@@ -37,7 +37,7 @@ Yes, Time Warp II runs completely offline. No internet connection needed.
 
 ### How do I install Time Warp II?
 
-1. Ensure Python 3.9+ is installed
+1. Ensure Python 3.10+ is installed
 2. Install tkinter if needed
 3. Download or clone the repository
 4. Run: `python TimeWarpII.py`
@@ -47,12 +47,11 @@ See [QUICK_START.md](QUICK_START.md) for detailed instructions.
 ### Do I need to install anything else?
 
 You need:
-- Python 3.9 or higher
+- Python 3.10 or higher
 - tkinter (usually included with Python)
-- Standard library (included)
-
-Optional for some languages:
-- Node.js for JavaScript (some features)
+- pygame-ce (installed automatically)
+- Pillow (installed automatically)
+- pygments (installed automatically)
 
 ### How much disk space does it need?
 
@@ -328,7 +327,7 @@ See [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md) for:
 
 ### Can I extend the TempleCode language?
 
-Yes, see [LANGUAGE_IMPLEMENTATIONS.md](dev/LANGUAGE_IMPLEMENTATIONS.md) for how the language is implemented and how to add new commands.
+Yes, see [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md) for architecture details on how the language is implemented and how to add new commands.
 
 ### How does the language detection work?
 

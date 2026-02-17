@@ -31,7 +31,7 @@ Click the "Run" button
 ## 📋 Full Quick Start
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.10 or higher
 - About 2 minutes
 - Internet connection (first run only)
 
@@ -148,12 +148,11 @@ If something doesn't work:
 - Error messages
 - Debug information
 
-**Canvas (Right - Logo only)**
+**Canvas (Right)**
 - Turtle graphics
-- Visual output for Logo programs
+- Visual output for Logo-style commands
 
 **Toolbar**
-- Language selector
 - Run button
 - File operations
 - Settings
@@ -239,7 +238,7 @@ A: Yes! TempleCode fuses all three — mix freely in one program
 
 **15 minutes (next)**
 → Run your first program
-→ Try another language
+→ Try different TempleCode styles (BASIC, PILOT, Logo)
 → Modify an example
 
 **30 minutes**

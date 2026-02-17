@@ -774,4 +774,4 @@ Happy coding!
 ---
 
 *Time Warp II — Student Tutorial*
-*Copyright © 2025 Honey Badger Universe*
+*Copyright © 2025–2026 Honey Badger Universe*

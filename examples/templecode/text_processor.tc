@@ -1,0 +1,86 @@
+REM ============================================
+REM  Text Processing Tool
+REM  Demonstrates: Regex, String functions,
+REM  File I/O, Lists, Formatted Output
+REM ============================================
+
+REM --- String Utility Functions ---
+FUNCTION WORD_COUNT(TEXT)
+  REGEX SPLIT "\s+" IN TEXT INTO WORDS
+  RETURN WORDS_LENGTH
+END FUNCTION
+
+FUNCTION CHAR_COUNT(TEXT)
+  RETURN LEN(TEXT)
+END FUNCTION
+
+SUB ANALYZE_TEXT(TEXT)
+  PRINT "=== Text Analysis ==="
+  PRINTF "Characters: {0}", LEN(TEXT)
+  PRINTF "Words:      {0}", WORD_COUNT(TEXT)
+
+  REM Count vowels
+  REGEX FIND "[aeiouAEIOU]" IN TEXT INTO VOWELS
+  PRINTF "Vowels:     {0}", VOWELS_LENGTH
+
+  REM Count sentences (periods, !, ?)
+  REGEX FIND "[.!?]" IN TEXT INTO SENTENCES
+  PRINTF "Sentences:  {0}", SENTENCES_LENGTH
+  PRINT ""
+END SUB
+
+SUB FIND_EMAILS(TEXT)
+  PRINT "=== Email Addresses Found ==="
+  REGEX FIND "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" IN TEXT INTO EMAILS
+  IF EMAILS_LENGTH = 0 THEN
+    PRINT "No emails found."
+  ELSE
+    FOREACH EMAIL IN EMAILS
+      PRINT "  "; EMAIL
+    NEXT EMAIL
+    PRINTF "Total: {0} email(s)", EMAILS_LENGTH
+  END IF
+  PRINT ""
+END SUB
+
+SUB FIND_URLS(TEXT)
+  PRINT "=== URLs Found ==="
+  REGEX FIND "https?://[^\s]+" IN TEXT INTO URLS
+  IF URLS_LENGTH = 0 THEN
+    PRINT "No URLs found."
+  ELSE
+    FOREACH URL IN URLS
+      PRINT "  "; URL
+    NEXT URL
+    PRINTF "Total: {0} URL(s)", URLS_LENGTH
+  END IF
+  PRINT ""
+END SUB
+
+REM --- Main program ---
+PRINT "================================"
+PRINT "  TempleCode Text Processor"
+PRINT "================================"
+PRINT ""
+
+LET SAMPLE$ = "Hello World! Contact us at info@example.com or support@test.org. Visit https://example.com for more info. The quick brown fox jumps over the lazy dog."
+
+PRINT "Input text:"
+PRINT SAMPLE$
+PRINT ""
+
+CALL ANALYZE_TEXT(SAMPLE$)
+CALL FIND_EMAILS(SAMPLE$)
+CALL FIND_URLS(SAMPLE$)
+
+REM --- Text transformations ---
+PRINT "=== Transformations ==="
+
+REM Replace emails with [REDACTED]
+REGEX REPLACE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" WITH "[REDACTED]" IN SAMPLE$ INTO CLEANED
+PRINT "Redacted:"
+PRINT CLEANED
+PRINT ""
+
+PRINT "Processing complete!"
+END

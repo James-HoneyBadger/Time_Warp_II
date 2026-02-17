@@ -1,0 +1,104 @@
+REM ============================================
+REM  Student Grade Book
+REM  Demonstrates: Structs, Dicts, Lists, File I/O,
+REM  Functions, Error Handling, Formatted Output
+REM ============================================
+
+REM --- Define data structures ---
+STRUCT STUDENT = NAME, GRADE1, GRADE2, GRADE3, AVERAGE
+
+REM --- Helper Functions ---
+FUNCTION CALC_AVERAGE(G1, G2, G3)
+  RETURN (G1 + G2 + G3) / 3
+END FUNCTION
+
+FUNCTION LETTER_GRADE(AVG)
+  IF AVG >= 90 THEN RETURN "A"
+  IF AVG >= 80 THEN RETURN "B"
+  IF AVG >= 70 THEN RETURN "C"
+  IF AVG >= 60 THEN RETURN "D"
+  RETURN "F"
+END FUNCTION
+
+FUNCTION VALIDATE_GRADE(G)
+  IF G < 0 OR G > 100 THEN THROW "Grade must be between 0 and 100"
+  RETURN G
+END FUNCTION
+
+REM --- Build gradebook ---
+LIST STUDENT_NAMES
+DICT GRADEBOOK
+
+REM Add student data
+DATA "Alice", 95, 88, 92
+DATA "Bob", 78, 85, 80
+DATA "Charlie", 92, 96, 89
+DATA "Diana", 65, 72, 70
+DATA "Eve", 88, 91, 94
+
+PRINT "=== Student Grade Book ==="
+PRINT ""
+
+FOR I = 1 TO 5
+  READ SNAME$
+  READ G1
+  READ G2
+  READ G3
+
+  TRY
+    LET G1 = VALIDATE_GRADE(G1)
+    LET G2 = VALIDATE_GRADE(G2)
+    LET G3 = VALIDATE_GRADE(G3)
+    LET AVG = CALC_AVERAGE(G1, G2, G3)
+
+    PUSH STUDENT_NAMES, SNAME$
+    DICT SDATA = "name":SNAME$
+    SET SDATA.grade1 = G1
+    SET SDATA.grade2 = G2
+    SET SDATA.grade3 = G3
+    SET SDATA.average = AVG
+    SET SDATA.letter = LETTER_GRADE(AVG)
+
+    REM Store in gradebook by name
+    SET GRADEBOOK, SNAME$, AVG
+  CATCH ERR
+    PRINT "Error processing "; SNAME$; ": "; ERR
+  END TRY
+NEXT I
+
+REM --- Display report ---
+PRINT "Student Report Card"
+PRINT "=================================="
+PRINTF "{0}     {1}  {2}  {3}  {4}  {5}", "Name", "G1", "G2", "G3", "Avg", "Grade"
+PRINT "----------------------------------"
+
+RESTORE
+FOR I = 1 TO 5
+  READ N$
+  READ G1
+  READ G2
+  READ G3
+  LET A = CALC_AVERAGE(G1, G2, G3)
+  LET L$ = LETTER_GRADE(A)
+  PRINTF "{0}     {1}   {2}   {3}   {4}   {5}", N$, G1, G2, G3, INT(A), L$
+NEXT I
+
+PRINT "=================================="
+
+REM --- Save to file ---
+OPEN "gradebook.csv" FOR OUTPUT AS #1
+WRITELINE #1, "Name,G1,G2,G3,Average,Letter"
+RESTORE
+FOR I = 1 TO 5
+  READ N$
+  READ G1
+  READ G2
+  READ G3
+  LET A = CALC_AVERAGE(G1, G2, G3)
+  LET L$ = LETTER_GRADE(A)
+  WRITELINE #1, N$ + "," + STR$(G1) + "," + STR$(G2) + "," + STR$(G3) + "," + STR$(INT(A)) + "," + L$
+NEXT I
+CLOSE #1
+PRINT ""
+PRINT "Report saved to gradebook.csv"
+END

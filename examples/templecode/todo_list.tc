@@ -1,0 +1,77 @@
+REM ============================================
+REM  Todo List Manager
+REM  Demonstrates: Lists, Subs, Loops, File I/O
+REM ============================================
+
+LIST TODOS
+LET COUNT = 0
+
+SUB SHOW_MENU()
+  PRINT ""
+  PRINT "=== Todo List Manager ==="
+  PRINT "1) Add task"
+  PRINT "2) Show all tasks"
+  PRINT "3) Remove task"
+  PRINT "4) Save to file"
+  PRINT "5) Exit"
+  PRINT "========================="
+END SUB
+
+SUB ADD_TASK()
+  INPUT "Enter task: "; TASK$
+  PUSH TODOS, TASK$
+  INCR COUNT
+  PRINT "Added: "; TASK$
+END SUB
+
+SUB SHOW_TASKS()
+  IF COUNT = 0 THEN PRINT "No tasks yet!": RETURN
+  PRINT ""
+  PRINT "Your Tasks:"
+  PRINT "-------------------"
+  LET I = 1
+  FOREACH ITEM IN TODOS
+    PRINT I; ") "; ITEM
+    INCR I
+  NEXT ITEM
+  PRINT "-------------------"
+  PRINT "Total: "; COUNT; " tasks"
+END SUB
+
+SUB SAVE_TASKS()
+  IF COUNT = 0 THEN PRINT "Nothing to save!": RETURN
+  OPEN "todos.txt" FOR OUTPUT AS #1
+  FOREACH ITEM IN TODOS
+    WRITELINE #1, ITEM
+  NEXT ITEM
+  CLOSE #1
+  PRINT "Saved "; COUNT; " tasks to todos.txt"
+END SUB
+
+REM Main Loop
+*MAIN
+CALL SHOW_MENU()
+INPUT "Choice: "; CHOICE
+IF CHOICE = 1 THEN CALL ADD_TASK()
+IF CHOICE = 2 THEN CALL SHOW_TASKS()
+IF CHOICE = 3 THEN GOTO REMOVE
+IF CHOICE = 4 THEN CALL SAVE_TASKS()
+IF CHOICE = 5 THEN GOTO DONE
+GOTO MAIN
+
+*REMOVE
+CALL SHOW_TASKS()
+IF COUNT = 0 THEN GOTO MAIN
+INPUT "Remove task #: "; IDX
+IF IDX >= 1 AND IDX <= COUNT THEN
+  SPLICE TODOS, IDX - 1, 1
+  DECR COUNT
+  PRINT "Task removed!"
+ELSE
+  PRINT "Invalid task number."
+END IF
+GOTO MAIN
+
+*DONE
+PRINT "Goodbye!"
+END

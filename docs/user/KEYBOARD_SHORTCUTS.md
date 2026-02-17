@@ -109,4 +109,4 @@ The command palette provides searchable access to all actions. Type to filter:
 ---
 
 *Time Warp II — Keyboard Shortcuts*
-*Copyright © 2025 Honey Badger Universe*
+*Copyright © 2025–2026 Honey Badger Universe*
