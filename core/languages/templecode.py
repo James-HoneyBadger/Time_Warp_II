@@ -1,0 +1,2158 @@
+#!/usr/bin/env python3
+"""
+TempleCode Language Executor
+=============================
+
+TempleCode is a unified educational programming language that blends the best of
+BASIC, PILOT, and Logo into a single cohesive language, as if designed in the
+early 1990s for teaching programming fundamentals.
+
+Language Heritage:
+  From BASIC (1964): Line numbers, PRINT, LET, IF/THEN/ELSE, FOR/NEXT, GOTO,
+                     GOSUB/RETURN, DIM, INPUT, REM, END, math & string functions
+  From PILOT (1968): T: (type text), A: (accept input), M: (match), Y:/N:
+                     (conditional on match), J: (jump to label), C: (call sub)
+  From Logo  (1967): FORWARD, BACK, LEFT, RIGHT, PENUP, PENDOWN, REPEAT,
+                     SETCOLOR, CIRCLE, HOME, CLEARSCREEN, TO/END procedures
+
+Design Philosophy:
+  TempleCode programs can freely mix all three styles. A program can use
+  line-numbered BASIC statements, PILOT colon-commands, and Logo turtle
+  graphics interchangeably. The interpreter auto-detects which sub-system
+  handles each line, giving learners a smooth multi-paradigm experience.
+
+File Extension: .tc
+"""
+
+import re
+import math
+import random
+import time
+
+
+class TempleCodeExecutor:
+    """
+    Unified executor for the TempleCode language.
+
+    Combines BASIC structured programming, PILOT interactive text commands,
+    and Logo turtle graphics into one language.
+    """
+
+    def __init__(self, interpreter):
+        self.interpreter = interpreter
+
+        # PILOT state
+        self.arrays = {}
+        self.return_stack = []
+        self.system_vars = {
+            "answer": "",
+            "matched": "",
+            "left": "",
+            "right": "",
+            "status": 0,
+        }
+
+        # Logo state – procedures defined with TO ... END
+        self.logo_procedures = {}
+
+    # ------------------------------------------------------------------
+    #  Top-level dispatch
+    # ------------------------------------------------------------------
+
+    def execute_command(self, command):
+        """Execute a single TempleCode command, routing to the correct sub-system."""
+        command = command.strip()
+        if not command:
+            return "continue"
+
+        # ------ Comments ------
+        if command.startswith("REM") or command.startswith("'") or command.startswith("*"):
+            return "continue"
+        if command.startswith(";"):
+            return "continue"
+
+        # ------ PILOT colon-commands (single letter + colon) ------
+        # Must be checked before label definitions so A: E: T: etc. work
+        if len(command) > 1 and command[1] == ":" and command[0].isalpha():
+            return self._dispatch_pilot(command)
+
+        # ------ Colon-suffixed label definitions (e.g. MyLabel:) – skip at runtime ------
+        if re.match(r'^[A-Za-z_]\w*:$', command):
+            return "continue"
+
+        # ------ Logo procedure definition (TO ... END) ------
+        upper = command.upper()
+        first_word = command.split()[0].upper() if command.split() else ""
+
+        if first_word == "TO":
+            return self._handle_logo_define(command)
+
+        # ------ Logo turtle / drawing commands ------
+        logo_keywords = {
+            "FORWARD", "FD", "BACK", "BK", "BACKWARD",
+            "LEFT", "LT", "RIGHT", "RT",
+            "PENUP", "PU", "PENDOWN", "PD",
+            "HOME", "CLEARSCREEN", "CS", "CLEAN",
+            "SHOWTURTLE", "ST", "HIDETURTLE", "HT",
+            "SETXY", "SETPOS", "SETX", "SETY",
+            "SETCOLOR", "SETCOLOUR", "SETPENCOLOR", "SETPC",
+            "SETPENSIZE", "SETWIDTH",
+            "SETFILLCOLOR", "SETFC",
+            "SETBACKGROUND", "SETBG",
+            "SETSCREENCOLOR", "SETSCREENCOLOUR",
+            "SETHEADING", "SETH",
+            "CIRCLE", "ARC", "DOT",
+            "SQUARE", "TRIANGLE", "POLYGON", "STAR",
+            "RECT", "RECTANGLE", "FILL", "FILLED",
+            "TOWARDS",
+            "REPEAT",
+            "MAKE",
+            "HEADING", "POS", "POSITION", "XCOR", "YCOR",
+            "TRACE", "NOTRACE",
+            "LABEL", "STAMP",
+            "PENCOLOR?", "PENSIZE?",
+            "WRAP", "WINDOW", "FENCE",
+        }
+
+        if first_word in logo_keywords:
+            return self._dispatch_logo(command, first_word)
+
+        # ------ Check if it's a user-defined Logo procedure call ------
+        if first_word.lower() in self.logo_procedures:
+            return self._call_logo_procedure(first_word.lower(), command.split()[1:])
+        # Also check interpreter-level logo_procedures (set during TO..END collection)
+        if hasattr(self.interpreter, 'logo_procedures') and first_word.lower() in self.interpreter.logo_procedures:
+            return self._call_logo_procedure(first_word.lower(), command.split()[1:])
+
+        # ------ BASIC statements ------
+        return self._dispatch_basic(command, first_word, upper)
+
+    # ==================================================================
+    #  PILOT sub-system
+    # ==================================================================
+
+    def _dispatch_pilot(self, command):
+        """Route PILOT colon-commands."""
+        prefix = command[0].upper()
+        arg = command[2:].strip() if len(command) > 2 else ""
+
+        handlers = {
+            "T": self._pilot_type,
+            "A": self._pilot_accept,
+            "Y": self._pilot_yes,
+            "N": self._pilot_no,
+            "M": self._pilot_match,
+            "J": self._pilot_jump,
+            "C": self._pilot_call,
+            "E": self._pilot_end,
+            "R": self._pilot_remark,
+            "U": self._pilot_use,
+            "L": self._pilot_label,
+            "G": self._pilot_graphics,
+            "S": self._pilot_string,
+            "D": self._pilot_dim,
+            "P": self._pilot_pause,
+            "X": self._pilot_execute,
+        }
+
+        handler = handlers.get(prefix)
+        if handler:
+            return handler(arg)
+        else:
+            self.interpreter.log_output(f"Unknown PILOT command: {prefix}:")
+            return "continue"
+
+    def _pilot_type(self, arg):
+        """T: – Type / print text with variable interpolation."""
+        text = self._interpolate_vars(arg)
+        self.interpreter.log_output(text)
+        return "continue"
+
+    def _pilot_accept(self, arg):
+        """A: – Accept user input, store in variable or $INPUT."""
+        prompt = self._interpolate_vars(arg) if arg else ""
+        value = self.interpreter.get_input(prompt)
+        self.system_vars["answer"] = value
+        self.interpreter.variables["INPUT"] = value
+        self.interpreter.variables["ANSWER"] = value
+
+        # If arg names a variable (A:NAME), store there too
+        if arg and not any(c in arg for c in " $*!?"):
+            self.interpreter.variables[arg.upper()] = value
+        return "continue"
+
+    def _pilot_yes(self, arg):
+        """Y: – Execute only if last match succeeded."""
+        if self.interpreter.match_flag:
+            return self.execute_command(arg)
+        return "continue"
+
+    def _pilot_no(self, arg):
+        """N: – Execute only if last match failed."""
+        if not self.interpreter.match_flag:
+            return self.execute_command(arg)
+        return "continue"
+
+    def _pilot_match(self, arg):
+        """M: – Match answer against pattern(s), set match flag."""
+        answer = self.system_vars.get("answer", "").lower()
+        patterns = [p.strip().lower() for p in arg.split(",")]
+        matched = any(p in answer for p in patterns if p)
+        self.interpreter.match_flag = matched
+        self.interpreter._last_match_set = True
+        if matched:
+            self.system_vars["matched"] = arg
+            self.system_vars["status"] = 1
+        else:
+            self.system_vars["status"] = 0
+        return "continue"
+
+    def _pilot_jump(self, arg):
+        """J: – Jump to label."""
+        label = arg.strip().lstrip("*")
+        if label in self.interpreter.labels:
+            self.interpreter.current_line = self.interpreter.labels[label]
+            return "jump"
+        else:
+            self.interpreter.log_output(f"Label not found: {label}")
+        return "continue"
+
+    def _pilot_call(self, arg):
+        """C: – Compute (assign variable).  C:X=5+3  or call subroutine C:*label"""
+        arg = arg.strip()
+        # If starts with * it's a subroutine call
+        if arg.startswith("*"):
+            label = arg.lstrip("*")
+            if label in self.interpreter.labels:
+                self.return_stack.append(self.interpreter.current_line)
+                self.interpreter.current_line = self.interpreter.labels[label]
+                return "jump"
+            else:
+                self.interpreter.log_output(f"Subroutine not found: {label}")
+            return "continue"
+        # Otherwise it's a Compute: C:X=5+3
+        if "=" in arg:
+            name, _, expr = arg.partition("=")
+            name = name.strip().upper()
+            value = self.interpreter.evaluate_expression(expr.strip())
+            self.interpreter.variables[name] = value
+        return "continue"
+
+    def _pilot_end(self, _arg):
+        """E: – End subroutine or program."""
+        if self.return_stack:
+            self.interpreter.current_line = self.return_stack.pop()
+            return "continue"
+        self.interpreter.running = False
+        return "end"
+
+    def _pilot_remark(self, _arg):
+        """R: – Remark / comment."""
+        return "continue"
+
+    def _pilot_use(self, arg):
+        """U: – Use / set variable.  U:X=5"""
+        if "=" in arg:
+            name, _, expr = arg.partition("=")
+            name = name.strip().upper()
+            value = self.interpreter.evaluate_expression(expr.strip())
+            self.interpreter.variables[name] = value
+        return "continue"
+
+    def _pilot_label(self, arg):
+        """L: – Label definition (handled at load time, noop at runtime)."""
+        return "continue"
+
+    def _pilot_graphics(self, arg):
+        """G: – Inline turtle graphics shorthand.
+        G:FORWARD 100   or   G:FD 100  etc."""
+        return self._dispatch_logo(arg.strip(), arg.strip().split()[0].upper() if arg.strip() else "")
+
+    def _pilot_string(self, arg):
+        """S: – String operations.  S:UPPER X  /  S:LEN X  etc."""
+        parts = arg.split()
+        if len(parts) < 2:
+            return "continue"
+        op = parts[0].upper()
+        var_name = parts[1].upper()
+        val = str(self.interpreter.variables.get(var_name, ""))
+
+        if op == "UPPER":
+            self.interpreter.variables[var_name] = val.upper()
+        elif op == "LOWER":
+            self.interpreter.variables[var_name] = val.lower()
+        elif op == "LEN":
+            self.interpreter.variables[var_name + "_LEN"] = len(val)
+        elif op == "REVERSE":
+            self.interpreter.variables[var_name] = val[::-1]
+        elif op == "TRIM":
+            self.interpreter.variables[var_name] = val.strip()
+        return "continue"
+
+    def _pilot_dim(self, arg):
+        """D: – Dimension an array.  D:ARR(10)"""
+        m = re.match(r'(\w+)\((\d+)\)', arg)
+        if m:
+            name, size = m.group(1).upper(), int(m.group(2))
+            self.arrays[name] = [0] * size
+        return "continue"
+
+    def _pilot_pause(self, arg):
+        """P: – Pause for N milliseconds."""
+        try:
+            ms = int(self.interpreter.evaluate_expression(arg))
+            time.sleep(ms / 1000.0)
+        except Exception:
+            time.sleep(1)
+        return "continue"
+
+    def _pilot_execute(self, arg):
+        """X: – Execute a BASIC or Logo command inline."""
+        return self.execute_command(arg)
+
+    # ------------------------------------------------------------------
+    #  Variable interpolation (PILOT-style $VAR and *VAR*)
+    # ------------------------------------------------------------------
+
+    def _interpolate_vars(self, text):
+        """Replace $VAR and *VAR* references with variable values."""
+        def replace_dollar(m):
+            name = m.group(1).upper()
+            return str(self.interpreter.variables.get(name, self.system_vars.get(name.lower(), "")))
+
+        text = re.sub(r'\$(\w+)', replace_dollar, text)
+
+        def replace_star(m):
+            name = m.group(1).upper()
+            return str(self.interpreter.variables.get(name, ""))
+
+        text = re.sub(r'\*(\w+)\*', replace_star, text)
+        return text
+
+    # ==================================================================
+    #  Logo sub-system
+    # ==================================================================
+
+    def _dispatch_logo(self, command, first_word):
+        """Route Logo turtle-graphics commands."""
+        parts = command.split()
+        cmd = first_word.upper()
+
+        # Movement
+        if cmd in ("FORWARD", "FD"):
+            return self._logo_forward(parts)
+        elif cmd in ("BACK", "BK", "BACKWARD"):
+            return self._logo_back(parts)
+        elif cmd in ("LEFT", "LT"):
+            return self._logo_left(parts)
+        elif cmd in ("RIGHT", "RT"):
+            return self._logo_right(parts)
+
+        # Pen control
+        elif cmd in ("PENUP", "PU"):
+            return self._logo_penup()
+        elif cmd in ("PENDOWN", "PD"):
+            return self._logo_pendown()
+
+        # Screen / position
+        elif cmd == "HOME":
+            return self._logo_home()
+        elif cmd in ("CLEARSCREEN", "CS", "CLEAN"):
+            return self._logo_clearscreen()
+        elif cmd in ("SETXY", "SETPOS"):
+            return self._logo_setxy(parts)
+        elif cmd == "SETX":
+            return self._logo_setx(parts)
+        elif cmd == "SETY":
+            return self._logo_sety(parts)
+        elif cmd in ("SETHEADING", "SETH"):
+            return self._logo_setheading(parts)
+        elif cmd == "TOWARDS":
+            return self._logo_towards(parts)
+
+        # Visibility
+        elif cmd in ("SHOWTURTLE", "ST"):
+            return self._logo_showturtle()
+        elif cmd in ("HIDETURTLE", "HT"):
+            return self._logo_hideturtle()
+
+        # Color / pen
+        elif cmd in ("SETCOLOR", "SETCOLOUR", "SETPENCOLOR", "SETPC"):
+            return self._logo_setcolor(parts)
+        elif cmd in ("SETPENSIZE", "SETWIDTH"):
+            return self._logo_setpensize(parts)
+        elif cmd in ("SETFILLCOLOR", "SETFC"):
+            return self._logo_setfillcolor(parts)
+        elif cmd in ("SETBACKGROUND", "SETBG", "SETSCREENCOLOR", "SETSCREENCOLOUR"):
+            return self._logo_setbackground(parts)
+
+        # Drawing shapes
+        elif cmd == "CIRCLE":
+            return self._logo_circle(parts)
+        elif cmd == "ARC":
+            return self._logo_arc(parts)
+        elif cmd == "DOT":
+            return self._logo_dot(parts)
+        elif cmd in ("RECT", "RECTANGLE"):
+            return self._logo_rect(parts)
+        elif cmd == "SQUARE":
+            return self._logo_square(parts)
+        elif cmd == "TRIANGLE":
+            return self._logo_triangle(parts)
+        elif cmd == "POLYGON":
+            return self._logo_polygon(parts)
+        elif cmd == "STAR":
+            return self._logo_star(parts)
+        elif cmd in ("FILL", "FILLED"):
+            return self._logo_fill()
+
+        # Control structures
+        elif cmd == "REPEAT":
+            return self._logo_repeat(command)
+
+        # Variables
+        elif cmd == "MAKE":
+            return self._logo_make(parts)
+
+        # Query
+        elif cmd in ("HEADING",):
+            return self._logo_query_heading()
+        elif cmd in ("POS", "POSITION"):
+            return self._logo_query_position()
+        elif cmd in ("XCOR",):
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                self.interpreter.log_output(str(tg["x"]))
+            return "continue"
+        elif cmd in ("YCOR",):
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                self.interpreter.log_output(str(tg["y"]))
+            return "continue"
+
+        # Tracing
+        elif cmd == "TRACE":
+            self.interpreter.turtle_trace = True
+            return "continue"
+        elif cmd == "NOTRACE":
+            self.interpreter.turtle_trace = False
+            return "continue"
+
+        # Text / stamp
+        elif cmd in ("LABEL", "STAMP"):
+            return self._logo_label(parts)
+
+        # Pen queries
+        elif cmd == "PENCOLOR?":
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                self.interpreter.log_output(f"Pen color: {tg['pen_color']}")
+            return "continue"
+        elif cmd == "PENSIZE?":
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                self.interpreter.log_output(f"Pen size: {tg['pen_size']}")
+            return "continue"
+
+        # Screen boundary modes
+        elif cmd == "WRAP":
+            self._ensure_turtle()
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["boundary_mode"] = "wrap"
+            return "continue"
+        elif cmd == "WINDOW":
+            self._ensure_turtle()
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["boundary_mode"] = "window"
+            return "continue"
+        elif cmd == "FENCE":
+            self._ensure_turtle()
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["boundary_mode"] = "fence"
+            return "continue"
+
+        else:
+            self.interpreter.log_output(f"Unknown Logo command: {cmd}")
+            return "continue"
+
+    # --- Logo movement helpers ---
+
+    def _eval_logo_arg(self, parts, index=1):
+        """Evaluate a Logo argument (number or expression)."""
+        if index >= len(parts):
+            return 0
+        arg = parts[index]
+        # Handle :VAR references
+        if arg.startswith(":"):
+            var_name = arg[1:].upper()
+            return float(self.interpreter.variables.get(var_name, 0))
+        try:
+            return float(self.interpreter.evaluate_expression(arg))
+        except Exception:
+            return 0
+
+    def _ensure_turtle(self):
+        """Make sure turtle graphics are initialised."""
+        self.interpreter.init_turtle_graphics()
+
+    def _logo_forward(self, parts):
+        self._ensure_turtle()
+        dist = self._eval_logo_arg(parts)
+        self.interpreter.move_turtle(dist)
+        return "continue"
+
+    def _logo_back(self, parts):
+        self._ensure_turtle()
+        dist = self._eval_logo_arg(parts)
+        self.interpreter.move_turtle(-dist)
+        return "continue"
+
+    def _logo_left(self, parts):
+        self._ensure_turtle()
+        angle = self._eval_logo_arg(parts)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["heading"] = (tg["heading"] - angle) % 360
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_right(self, parts):
+        self._ensure_turtle()
+        angle = self._eval_logo_arg(parts)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["heading"] = (tg["heading"] + angle) % 360
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_penup(self):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["pen_down"] = False
+        return "continue"
+
+    def _logo_pendown(self):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["pen_down"] = True
+        return "continue"
+
+    def _logo_home(self):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["x"] = 0.0
+            tg["y"] = 0.0
+            tg["heading"] = 0.0
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_clearscreen(self):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            tg["canvas"].delete("all")
+            tg["x"] = 0.0
+            tg["y"] = 0.0
+            tg["heading"] = 0.0
+            tg["lines"] = []
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_setxy(self, parts):
+        self._ensure_turtle()
+        x = self._eval_logo_arg(parts, 1)
+        y = self._eval_logo_arg(parts, 2)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            if tg["pen_down"] and tg.get("canvas"):
+                cx, cy = tg["center_x"], tg["center_y"]
+                old_sx = cx + tg["x"]
+                old_sy = cy - tg["y"]
+                new_sx = cx + x
+                new_sy = cy - y
+                line_id = tg["canvas"].create_line(
+                    old_sx, old_sy, new_sx, new_sy,
+                    fill=tg["pen_color"], width=tg["pen_size"]
+                )
+                tg["lines"].append(line_id)
+            tg["x"] = float(x)
+            tg["y"] = float(y)
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_setx(self, parts):
+        self._ensure_turtle()
+        x = self._eval_logo_arg(parts, 1)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            if tg["pen_down"] and tg.get("canvas"):
+                cx, cy = tg["center_x"], tg["center_y"]
+                old_sx = cx + tg["x"]
+                old_sy = cy - tg["y"]
+                new_sx = cx + x
+                line_id = tg["canvas"].create_line(
+                    old_sx, old_sy, new_sx, old_sy,
+                    fill=tg["pen_color"], width=tg["pen_size"]
+                )
+                tg["lines"].append(line_id)
+            tg["x"] = float(x)
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_sety(self, parts):
+        self._ensure_turtle()
+        y = self._eval_logo_arg(parts, 1)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            if tg["pen_down"] and tg.get("canvas"):
+                cx, cy = tg["center_x"], tg["center_y"]
+                old_sx = cx + tg["x"]
+                old_sy = cy - tg["y"]
+                new_sy = cy - y
+                line_id = tg["canvas"].create_line(
+                    old_sx, old_sy, old_sx, new_sy,
+                    fill=tg["pen_color"], width=tg["pen_size"]
+                )
+                tg["lines"].append(line_id)
+            tg["y"] = float(y)
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_setheading(self, parts):
+        self._ensure_turtle()
+        h = self._eval_logo_arg(parts, 1)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["heading"] = float(h) % 360
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_towards(self, parts):
+        self._ensure_turtle()
+        tx = self._eval_logo_arg(parts, 1)
+        ty = self._eval_logo_arg(parts, 2)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            dx = tx - tg["x"]
+            dy = ty - tg["y"]
+            angle = math.degrees(math.atan2(dx, dy)) % 360
+            tg["heading"] = angle
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_showturtle(self):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["visible"] = True
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_hideturtle(self):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            tg["visible"] = False
+            self.interpreter.update_turtle_display()
+        return "continue"
+
+    def _logo_setcolor(self, parts):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg and len(parts) > 1:
+            color = " ".join(parts[1:]).strip().lower()
+            color_map = {
+                "0": "black", "1": "blue", "2": "green", "3": "cyan",
+                "4": "red", "5": "magenta", "6": "yellow", "7": "white",
+                "8": "brown", "9": "tan", "10": "forest", "11": "aqua",
+                "12": "salmon", "13": "violet", "14": "orange", "15": "gray",
+            }
+            tg["pen_color"] = color_map.get(color, color)
+        return "continue"
+
+    def _logo_setpensize(self, parts):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg and len(parts) > 1:
+            try:
+                tg["pen_size"] = max(1, int(float(self._eval_logo_arg(parts))))
+            except Exception:
+                pass
+        return "continue"
+
+    def _logo_setfillcolor(self, parts):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg and len(parts) > 1:
+            tg["fill_color"] = " ".join(parts[1:]).strip().lower()
+        return "continue"
+
+    def _logo_setbackground(self, parts):
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas") and len(parts) > 1:
+            color = " ".join(parts[1:]).strip().lower()
+            try:
+                tg["canvas"].config(bg=color)
+            except Exception:
+                pass
+        return "continue"
+
+    def _logo_circle(self, parts):
+        self._ensure_turtle()
+        radius = self._eval_logo_arg(parts)
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            cx = tg["center_x"] + tg["x"]
+            cy = tg["center_y"] - tg["y"]
+            r = abs(radius)
+            tg["canvas"].create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                outline=tg["pen_color"], width=tg["pen_size"]
+            )
+        return "continue"
+
+    def _logo_arc(self, parts):
+        self._ensure_turtle()
+        angle = self._eval_logo_arg(parts, 1)
+        radius = self._eval_logo_arg(parts, 2) if len(parts) > 2 else 50
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            cx = tg["center_x"] + tg["x"]
+            cy = tg["center_y"] - tg["y"]
+            r = abs(radius)
+            start = tg["heading"]
+            tg["canvas"].create_arc(
+                cx - r, cy - r, cx + r, cy + r,
+                start=90 - start, extent=-angle,
+                outline=tg["pen_color"], width=tg["pen_size"], style="arc"
+            )
+        return "continue"
+
+    def _logo_dot(self, parts):
+        self._ensure_turtle()
+        size = self._eval_logo_arg(parts) if len(parts) > 1 else 3
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            cx = tg["center_x"] + tg["x"]
+            cy = tg["center_y"] - tg["y"]
+            r = max(1, size / 2)
+            tg["canvas"].create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                fill=tg["pen_color"], outline=tg["pen_color"]
+            )
+        return "continue"
+
+    def _logo_rect(self, parts):
+        self._ensure_turtle()
+        w = self._eval_logo_arg(parts, 1)
+        h = self._eval_logo_arg(parts, 2) if len(parts) > 2 else w
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            cx = tg["center_x"] + tg["x"]
+            cy = tg["center_y"] - tg["y"]
+            tg["canvas"].create_rectangle(
+                cx, cy, cx + w, cy + h,
+                outline=tg["pen_color"], width=tg["pen_size"]
+            )
+        return "continue"
+
+    def _logo_square(self, parts):
+        """Draw a square of given side length using turtle movement."""
+        self._ensure_turtle()
+        side = self._eval_logo_arg(parts) if len(parts) > 1 else 50
+        for _ in range(4):
+            self.interpreter.move_turtle(side)
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["heading"] = (tg["heading"] + 90) % 360
+        return "continue"
+
+    def _logo_triangle(self, parts):
+        """Draw an equilateral triangle of given side length."""
+        self._ensure_turtle()
+        side = self._eval_logo_arg(parts) if len(parts) > 1 else 50
+        for _ in range(3):
+            self.interpreter.move_turtle(side)
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["heading"] = (tg["heading"] + 120) % 360
+        return "continue"
+
+    def _logo_polygon(self, parts):
+        """Draw a regular polygon.  POLYGON sides length"""
+        self._ensure_turtle()
+        sides = int(self._eval_logo_arg(parts, 1)) if len(parts) > 1 else 6
+        length = self._eval_logo_arg(parts, 2) if len(parts) > 2 else 50
+        angle = 360.0 / max(sides, 3)
+        for _ in range(max(sides, 3)):
+            self.interpreter.move_turtle(length)
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["heading"] = (tg["heading"] + angle) % 360
+        return "continue"
+
+    def _logo_star(self, parts):
+        """Draw a star.  STAR points length"""
+        self._ensure_turtle()
+        points = int(self._eval_logo_arg(parts, 1)) if len(parts) > 1 else 5
+        length = self._eval_logo_arg(parts, 2) if len(parts) > 2 else 50
+        angle = 360.0 / max(points, 3) * 2  # skip-one vertex pattern
+        for _ in range(max(points, 3)):
+            self.interpreter.move_turtle(length)
+            tg = self.interpreter.turtle_graphics
+            if tg:
+                tg["heading"] = (tg["heading"] + angle) % 360
+        return "continue"
+
+    def _logo_fill(self):
+        """Fill placeholder – real flood fill requires bitmap canvas."""
+        self.interpreter.log_output("FILL: (visual fill not supported in vector canvas)")
+        return "continue"
+
+    # --- REPEAT ---
+
+    def _logo_repeat(self, command):
+        """REPEAT n [ commands ]"""
+        m = re.match(r'REPEAT\s+(\S+)\s*\[(.+)\]', command, re.IGNORECASE | re.DOTALL)
+        if not m:
+            self.interpreter.log_output("REPEAT syntax: REPEAT n [ commands ]")
+            return "continue"
+        count_expr = m.group(1)
+        block = m.group(2).strip()
+
+        # Evaluate count
+        try:
+            if count_expr.startswith(":"):
+                count = int(float(self.interpreter.variables.get(count_expr[1:].upper(), 0)))
+            else:
+                count = int(float(self.interpreter.evaluate_expression(count_expr)))
+        except Exception:
+            count = 0
+
+        # Split block into commands
+        cmds = self._split_block_commands(block)
+
+        for i in range(count):
+            self.interpreter.variables["REPCOUNT"] = i + 1
+            for c in cmds:
+                c = c.strip()
+                if c:
+                    result = self.execute_command(c)
+                    if result in ("end", "stop"):
+                        return result
+        return "continue"
+
+    def _split_block_commands(self, block):
+        """Split a bracketed block into individual commands, respecting nested brackets."""
+        commands = []
+        depth = 0
+        current = []
+        for char in block:
+            if char == '[':
+                depth += 1
+                current.append(char)
+            elif char == ']':
+                depth -= 1
+                current.append(char)
+            elif char == '\n' and depth == 0:
+                commands.append(''.join(current))
+                current = []
+            else:
+                current.append(char)
+        if current:
+            commands.append(''.join(current))
+
+        # Further split on spaces between commands at top level
+        result = []
+        for cmd_line in commands:
+            result.extend(self._split_top_level_line(cmd_line.strip()))
+        return result
+
+    def _split_top_level_line(self, line):
+        """Split a single line into separate commands, respecting brackets."""
+        if not line:
+            return []
+
+        # If line contains REPEAT with brackets, keep as one unit
+        # Otherwise split by recognizing command keywords
+        commands = []
+        tokens = []
+        depth = 0
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if ch == '[':
+                depth += 1
+                tokens.append(ch)
+            elif ch == ']':
+                depth -= 1
+                tokens.append(ch)
+                # After closing bracket at depth 0, make a command break
+                if depth == 0:
+                    commands.append(''.join(tokens).strip())
+                    tokens = []
+            elif ch == ' ' and depth == 0:
+                # Check if next word is a command keyword
+                rest = line[i + 1:].lstrip()
+                first_next = rest.split()[0].upper() if rest.split() else ""
+                all_keywords = {
+                    "FORWARD", "FD", "BACK", "BK", "BACKWARD",
+                    "LEFT", "LT", "RIGHT", "RT",
+                    "PENUP", "PU", "PENDOWN", "PD",
+                    "HOME", "CLEARSCREEN", "CS",
+                    "SHOWTURTLE", "ST", "HIDETURTLE", "HT",
+                    "SETXY", "SETCOLOR", "SETCOLOUR", "SETPENCOLOR", "SETPC",
+                    "SETPENSIZE", "SETWIDTH", "SETHEADING", "SETH",
+                    "SETFILLCOLOR", "SETFC", "SETBACKGROUND", "SETBG",
+                    "CIRCLE", "ARC", "DOT", "RECT", "RECTANGLE",
+                    "SQUARE", "TRIANGLE", "FILL", "FILLED",
+                    "REPEAT", "MAKE", "TOWARDS",
+                    "PRINT", "LET", "IF", "FOR", "GOTO", "GOSUB", "REM", "END",
+                }
+                if first_next in all_keywords and tokens:
+                    commands.append(''.join(tokens).strip())
+                    tokens = []
+                else:
+                    tokens.append(ch)
+            else:
+                tokens.append(ch)
+            i += 1
+
+        if tokens:
+            commands.append(''.join(tokens).strip())
+        return [c for c in commands if c]
+
+    # --- MAKE ---
+
+    def _logo_make(self, parts):
+        """MAKE "varname value"""
+        if len(parts) < 3:
+            return "continue"
+        name = parts[1].strip('"').upper()
+        value_str = " ".join(parts[2:])
+        try:
+            value = self.interpreter.evaluate_expression(value_str)
+        except Exception:
+            value = value_str
+        self.interpreter.variables[name] = value
+        return "continue"
+
+    # --- Logo procedure definition ---
+
+    def _handle_logo_define(self, command):
+        """TO procname :param1 :param2 ...  collects lines until END."""
+        parts = command.split()
+        if len(parts) < 2:
+            self.interpreter.log_output("TO requires a procedure name")
+            return "continue"
+
+        proc_name = parts[1].lower()
+        params = [p.lstrip(":").upper() for p in parts[2:] if p.startswith(":")]
+
+        # Collect body lines until END
+        body_lines = []
+        self.interpreter.current_line += 1
+        found_end = False
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, line_text = self.interpreter.program_lines[self.interpreter.current_line]
+            if line_text.strip().upper() == "END":
+                found_end = True
+                break
+            body_lines.append(line_text)
+            self.interpreter.current_line += 1
+
+        if not found_end:
+            self.interpreter.log_error(f"TO {proc_name}: missing END", self.interpreter.current_line + 1)
+
+        self.logo_procedures[proc_name] = (params, body_lines)
+        # Also store on interpreter for cross-reference
+        self.interpreter.logo_procedures[proc_name] = (params, body_lines)
+        return "continue"
+
+    def _call_logo_procedure(self, proc_name, args):
+        """Call a user-defined Logo procedure."""
+        procs = self.logo_procedures
+        if proc_name not in procs:
+            procs = getattr(self.interpreter, 'logo_procedures', {})
+        if proc_name not in procs:
+            self.interpreter.log_output(f"Unknown procedure: {proc_name}")
+            return "continue"
+
+        params, body = procs[proc_name]
+
+        # Save current variables
+        saved = {}
+        for i, param in enumerate(params):
+            saved[param] = self.interpreter.variables.get(param)
+            if i < len(args):
+                arg_val = args[i]
+                if isinstance(arg_val, str) and arg_val.startswith(":"):
+                    arg_val = self.interpreter.variables.get(arg_val[1:].upper(), 0)
+                try:
+                    arg_val = self.interpreter.evaluate_expression(str(arg_val))
+                except Exception:
+                    pass
+                self.interpreter.variables[param] = arg_val
+
+        # Execute body
+        for line in body:
+            result = self.execute_command(line.strip())
+            if result in ("end", "stop"):
+                break
+
+        # Restore variables
+        for param in params:
+            if saved.get(param) is not None:
+                self.interpreter.variables[param] = saved[param]
+            elif param in self.interpreter.variables:
+                del self.interpreter.variables[param]
+
+        return "continue"
+
+    # --- Logo queries ---
+
+    def _logo_query_heading(self):
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            self.interpreter.log_output(f"Heading: {tg['heading']}")
+        return "continue"
+
+    def _logo_query_position(self):
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            self.interpreter.log_output(f"Position: [{tg['x']}, {tg['y']}]")
+        return "continue"
+
+    # ==================================================================
+    #  BASIC sub-system
+    # ==================================================================
+
+    def _dispatch_basic(self, command, first_word, upper_cmd):
+        """Route BASIC-style statements."""
+        cmd = first_word.upper()
+
+        # Handle line-number prefixed commands
+        # (The interpreter parse_line already strips line numbers, but in case)
+
+        if cmd == "PRINT" or cmd == "?":
+            return self._basic_print(command)
+        elif cmd == "LET":
+            return self._basic_let(command)
+        elif cmd == "INPUT":
+            return self._basic_input(command)
+        elif cmd == "IF":
+            return self._basic_if(command)
+        elif cmd == "ELSE":
+            return self._basic_else()
+        elif cmd == "FOR":
+            return self._basic_for(command)
+        elif cmd == "NEXT":
+            return self._basic_next(command)
+        elif cmd == "GOTO":
+            return self._basic_goto(command)
+        elif cmd == "GOSUB":
+            return self._basic_gosub(command)
+        elif cmd == "RETURN":
+            return self._basic_return()
+        elif cmd == "DIM":
+            return self._basic_dim(command)
+        elif cmd == "REM" or cmd == "'":
+            return "continue"
+        elif cmd == "END":
+            # Check for block-closing END variants
+            upper_cmd = command.upper().strip()
+            if upper_cmd == "END SELECT":
+                if self.interpreter.select_stack:
+                    self.interpreter.select_stack.pop()
+                return "continue"
+            elif upper_cmd == "END IF":
+                return "continue"  # Block IF closing — no-op
+            else:
+                self.interpreter.running = False
+                return "end"
+        elif cmd == "STOP":
+            self.interpreter.running = False
+            return "end"
+        elif cmd == "CLS":
+            if hasattr(self.interpreter, 'output_widget') and self.interpreter.output_widget:
+                try:
+                    self.interpreter.output_widget.delete("1.0", "end")
+                except Exception:
+                    self.interpreter.log_output("\n" * 25)
+            else:
+                self.interpreter.log_output("\n" * 25)
+            return "continue"
+        elif cmd == "DATA":
+            return "continue"  # DATA lines are pre-parsed
+        elif cmd == "READ":
+            return self._basic_read(command)
+        elif cmd == "RANDOMIZE":
+            # Support RANDOMIZE, RANDOMIZE TIMER, or RANDOMIZE <seed>
+            rest = command[len("RANDOMIZE"):].strip().upper()
+            if not rest or rest == "TIMER":
+                random.seed()
+            else:
+                try:
+                    random.seed(int(float(self._eval_basic_expression(rest))))
+                except Exception:
+                    random.seed()
+            return "continue"
+        elif cmd == "RESTORE":
+            return self._basic_restore()
+        elif cmd == "DELAY" or cmd == "SLEEP":
+            return self._basic_delay(command)
+        elif cmd == "DO":
+            return self._basic_do(command)
+        elif cmd == "LOOP":
+            return self._basic_loop(command)
+        elif cmd == "WHILE":
+            return self._basic_while(command)
+        elif cmd == "WEND":
+            return self._basic_wend()
+        elif cmd == "EXIT":
+            return self._basic_exit(command)
+        elif cmd == "SELECT":
+            return self._basic_select(command)
+        elif cmd == "CASE":
+            return self._basic_case(command)
+        elif cmd == "SWAP":
+            return self._basic_swap(command)
+        elif cmd == "INCR":
+            return self._basic_incr_decr(command, 1)
+        elif cmd == "DECR":
+            return self._basic_incr_decr(command, -1)
+        elif cmd == "COLOR" or cmd == "COLOUR":
+            # Turtle color change, for BASIC-style usage
+            return self._logo_setcolor(command.split())
+        elif cmd == "ENDIF":
+            return "continue"  # Block IF closing — alias for END IF
+        elif cmd == "ELSEIF":
+            return self._basic_elseif(command)
+        elif cmd == "ON":
+            return self._basic_on(command)
+        elif cmd == "BEEP":
+            return self._basic_beep()
+        elif cmd == "TAB":
+            return self._basic_tab(command)
+        elif cmd == "SPC":
+            return self._basic_spc(command)
+
+        # Turtle graphics commands accessible from BASIC style
+        elif cmd in ("FORWARD", "FD", "BACK", "BK", "BACKWARD",
+                     "LEFT", "LT", "RIGHT", "RT",
+                     "PENUP", "PU", "PENDOWN", "PD"):
+            return self._dispatch_logo(command, cmd)
+
+        # Direct variable assignment: X = 5
+        elif "=" in command and not command.startswith("IF"):
+            return self._basic_let("LET " + command)
+
+        # Math/string function calls as statements
+        elif cmd in ("SIN", "COS", "TAN", "SQRT", "ABS", "INT", "RND",
+                      "LOG", "EXP", "CEIL", "FIX"):
+            return self._basic_math_func(command)
+        elif cmd in ("LEN", "MID", "LEFT", "RIGHT", "INSTR", "STR",
+                      "VAL", "CHR", "ASC", "UCASE", "LCASE"):
+            return self._basic_string_func(command)
+
+        else:
+            self.interpreter.log_output(f"Unknown command: {command}")
+            return "continue"
+
+    # --- BASIC PRINT ---
+
+    def _basic_print(self, command):
+        """PRINT expression[; expression]..."""
+        # Strip PRINT or ?
+        text = re.sub(r'^(PRINT|\?)\s*', '', command, flags=re.IGNORECASE).strip()
+
+        if not text:
+            self.interpreter.log_output("")
+            return "continue"
+
+        # Split on ; for concatenation (no newline) and , for tab
+        output_parts = []
+        trailing_semi = text.endswith(";")
+        if trailing_semi:
+            text = text[:-1]
+
+        # Tokenize respecting quoted strings to avoid splitting inside them
+        segments = self._tokenize_print(text)
+        for seg in segments:
+            seg = seg.strip()
+            if seg == ";" or seg == ",":
+                if seg == ",":
+                    output_parts.append("\t")
+                continue
+            if not seg:
+                continue
+            output_parts.append(str(self._eval_basic_expression(seg)))
+
+        result = "".join(output_parts)
+        if trailing_semi:
+            self.interpreter.log_output(result, end="")
+        else:
+            self.interpreter.log_output(result)
+        return "continue"
+
+    @staticmethod
+    def _tokenize_print(text):
+        """Split PRINT arguments on ; and , delimiters, respecting quoted strings."""
+        tokens = []
+        current = []
+        in_string = False
+        for ch in text:
+            if ch == '"':
+                in_string = not in_string
+                current.append(ch)
+            elif (ch == ';' or ch == ',') and not in_string:
+                tokens.append(''.join(current))
+                tokens.append(ch)
+                current = []
+            else:
+                current.append(ch)
+        if current:
+            tokens.append(''.join(current))
+        return tokens
+
+    # --- BASIC LET ---
+
+    def _basic_let(self, command):
+        """LET var = expression   or   var = expression"""
+        text = re.sub(r'^LET\s+', '', command, flags=re.IGNORECASE).strip()
+        m = re.match(r'(\w+\$?(?:\([^)]*\))?)\s*=\s*(.*)', text, re.DOTALL)
+        if not m:
+            return "continue"
+
+        var_part = m.group(1)
+        expr = m.group(2).strip()
+
+        # Array element:  ARR(index)
+        arr_match = re.match(r'(\w+)\((.+)\)', var_part)
+        if arr_match:
+            arr_name = arr_match.group(1).upper()
+            idx_expr = arr_match.group(2)
+            idx = int(float(self.interpreter.evaluate_expression(idx_expr)))
+            if arr_name in self.arrays:
+                if 0 <= idx < len(self.arrays[arr_name]):
+                    self.arrays[arr_name][idx] = self._eval_basic_expression(expr)
+            else:
+                self.interpreter.variables[f"{arr_name}({idx})"] = self._eval_basic_expression(expr)
+            return "continue"
+
+        var_name = var_part.upper()
+        value = self._eval_basic_expression(expr)
+        self.interpreter.variables[var_name] = value
+        return "continue"
+
+    # --- BASIC INPUT ---
+
+    def _basic_input(self, command):
+        """INPUT ["prompt";] var"""
+        text = re.sub(r'^INPUT\s+', '', command, flags=re.IGNORECASE).strip()
+
+        prompt = "? "
+        var_name = text
+
+        # INPUT "prompt"; VAR
+        m = re.match(r'"([^"]*)"[;,]\s*(\w+)', text)
+        if m:
+            prompt = m.group(1) + " "
+            var_name = m.group(2)
+        elif re.match(r'\w+$', text):
+            var_name = text
+        else:
+            var_name = text
+
+        var_name = var_name.strip().upper()
+        value = self.interpreter.get_input(prompt)
+
+        # Try numeric conversion
+        try:
+            value = float(value)
+            if value == int(value):
+                value = int(value)
+        except (ValueError, TypeError):
+            pass
+
+        self.interpreter.variables[var_name] = value
+        return "continue"
+
+    # --- BASIC IF ---
+
+    def _basic_if(self, command):
+        """IF condition THEN statement [ELSE statement]
+        Supports both single-line and multi-line IF blocks:
+          IF cond THEN stmt [ELSE stmt]          -- single-line
+          IF cond THEN                           -- multi-line (no stmt after THEN)
+              ...body...
+          [ELSE]
+              ...body...
+          END IF
+        """
+        m = re.match(r'IF\s+(.+?)\s+THEN\s*(.*)', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+
+        condition = m.group(1)
+        then_rest = m.group(2).strip()
+
+        # --- Multi-line block IF (nothing after THEN) ---
+        if not then_rest:
+            cond_result = self._eval_basic_condition(condition)
+            if cond_result:
+                # Execute lines until ELSE/ELSEIF or END IF
+                return "continue"  # just let main loop proceed into the block
+            else:
+                # Skip to ELSE, ELSEIF, or END IF
+                depth = 1
+                self.interpreter.current_line += 1
+                while self.interpreter.current_line < len(self.interpreter.program_lines):
+                    _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                    lu = lt.strip().upper()
+                    if lu.startswith("IF ") and (lu.endswith("THEN") or " THEN " in lu):
+                        depth += 1
+                    elif lu == "ELSE" and depth == 1:
+                        # Found our ELSE — execute from here
+                        return "continue"
+                    elif lu.startswith("ELSEIF ") and depth == 1:
+                        # Found ELSEIF — evaluate its condition
+                        ei_match = re.match(r'ELSEIF\s+(.+?)\s+THEN', lt.strip(), re.IGNORECASE)
+                        if ei_match and self._eval_basic_condition(ei_match.group(1)):
+                            return "continue"  # condition true, execute this block
+                        # else keep scanning
+                    elif lu in ("END IF", "ENDIF"):
+                        depth -= 1
+                        if depth == 0:
+                            return "continue"
+                    self.interpreter.current_line += 1
+                return "continue"
+
+        # --- Single-line IF ---
+        then_else = then_rest
+
+        # Split THEN...ELSE
+        else_match = re.split(r'\bELSE\b', then_else, flags=re.IGNORECASE)
+        then_part = else_match[0].strip()
+        else_part = else_match[1].strip() if len(else_match) > 1 else None
+
+        # Evaluate condition
+        cond_result = self._eval_basic_condition(condition)
+
+        if cond_result:
+            # THEN part could be line number (GOTO) or statement
+            if re.match(r'^\d+$', then_part):
+                return self._basic_goto(f"GOTO {then_part}")
+            return self.execute_command(then_part)
+        elif else_part:
+            if re.match(r'^\d+$', else_part):
+                return self._basic_goto(f"GOTO {else_part}")
+            return self.execute_command(else_part)
+
+        return "continue"
+
+    def _basic_else(self):
+        """ELSE — only reached when IF-true block was executed (need to skip to END IF)."""
+        depth = 1
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            lu = lt.strip().upper()
+            if lu.startswith("IF ") and (lu.endswith("THEN") or " THEN " in lu):
+                depth += 1
+            elif lu in ("END IF", "ENDIF"):
+                depth -= 1
+                if depth == 0:
+                    return "continue"
+            self.interpreter.current_line += 1
+        return "continue"
+
+    # --- BASIC FOR/NEXT ---
+
+    def _basic_for(self, command):
+        """FOR var = start TO end [STEP step]"""
+        m = re.match(r'FOR\s+(\w+)\s*=\s*(.+?)\s+TO\s+(.+?)(?:\s+STEP\s+(.+))?$',
+                      command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output(f"FOR syntax error: {command}")
+            return "continue"
+
+        var_name = m.group(1).upper()
+        start = float(self.interpreter.evaluate_expression(m.group(2)))
+        end = float(self.interpreter.evaluate_expression(m.group(3)))
+        step = float(self.interpreter.evaluate_expression(m.group(4))) if m.group(4) else 1
+
+        if step == 0:
+            self.interpreter.log_output("FOR error: STEP cannot be 0")
+            return "continue"
+
+        self.interpreter.variables[var_name] = start if start == int(start) else start
+        if start == int(start):
+            self.interpreter.variables[var_name] = int(start)
+
+        self.interpreter.for_stack.append({
+            "var": var_name,
+            "end": end,
+            "step": step,
+            "line": self.interpreter.current_line,
+        })
+        return "continue"
+
+    def _basic_next(self, command):
+        """NEXT [var]"""
+        if not self.interpreter.for_stack:
+            self.interpreter.log_output("NEXT without FOR")
+            return "continue"
+
+        loop = self.interpreter.for_stack[-1]
+        var_name = loop["var"]
+
+        # Check optional variable name
+        parts = command.split()
+        if len(parts) > 1:
+            specified_var = parts[1].upper()
+            if specified_var != var_name:
+                self.interpreter.log_output(f"NEXT {specified_var} doesn't match FOR {var_name}")
+                return "continue"
+
+        current_val = float(self.interpreter.variables.get(var_name, 0))
+        current_val += loop["step"]
+        self.interpreter.variables[var_name] = int(current_val) if current_val == int(current_val) else current_val
+
+        # Check loop condition
+        if loop["step"] > 0 and current_val > loop["end"]:
+            self.interpreter.for_stack.pop()
+            return "continue"
+        elif loop["step"] < 0 and current_val < loop["end"]:
+            self.interpreter.for_stack.pop()
+            return "continue"
+        else:
+            self.interpreter.current_line = loop["line"] + 1
+            return "jump"
+
+    # --- BASIC GOTO/GOSUB ---
+
+    def _basic_goto(self, command):
+        """GOTO line_number or label"""
+        parts = command.split()
+        if len(parts) < 2:
+            return "continue"
+        target = parts[1].strip()
+
+        # Try label first
+        if target in self.interpreter.labels:
+            self.interpreter.current_line = self.interpreter.labels[target]
+            return "jump"
+
+        # Try line number
+        try:
+            target_line = int(target)
+            for i, (line_num, _) in enumerate(self.interpreter.program_lines):
+                if line_num == target_line:
+                    self.interpreter.current_line = i
+                    return "jump"
+            self.interpreter.log_output(f"Line {target_line} not found")
+        except ValueError:
+            self.interpreter.log_output(f"Invalid GOTO target: {target}")
+        return "continue"
+
+    def _basic_gosub(self, command):
+        """GOSUB line_number"""
+        parts = command.split()
+        if len(parts) < 2:
+            return "continue"
+        target = parts[1].strip()
+
+        self.interpreter.stack.append(self.interpreter.current_line)
+
+        if target in self.interpreter.labels:
+            self.interpreter.current_line = self.interpreter.labels[target]
+            return "jump"
+
+        try:
+            target_line = int(target)
+            for i, (line_num, _) in enumerate(self.interpreter.program_lines):
+                if line_num == target_line:
+                    self.interpreter.current_line = i
+                    return "jump"
+            self.interpreter.log_output(f"Line {target_line} not found")
+        except ValueError:
+            self.interpreter.log_output(f"Invalid GOSUB target: {target}")
+        return "continue"
+
+    def _basic_return(self):
+        """RETURN from GOSUB."""
+        if self.interpreter.stack:
+            self.interpreter.current_line = self.interpreter.stack.pop()
+            return "continue"
+        self.interpreter.log_output("RETURN without GOSUB")
+        return "continue"
+
+    # --- BASIC DIM ---
+
+    def _basic_dim(self, command):
+        """DIM arrayname(size)"""
+        text = re.sub(r'^DIM\s+', '', command, flags=re.IGNORECASE).strip()
+        for decl in text.split(","):
+            decl = decl.strip()
+            m = re.match(r'(\w+)\((\d+)\)', decl)
+            if m:
+                name = m.group(1).upper()
+                size = int(m.group(2))
+                self.arrays[name] = [0] * (size + 1)
+        return "continue"
+
+    # --- BASIC READ (from DATA statements) ---
+
+    def _basic_read(self, command):
+        """READ var1[, var2, ...]
+
+        Uses DATA values pre-collected by interpreter.load_program().
+        """
+        text = re.sub(r'^READ\s+', '', command, flags=re.IGNORECASE).strip()
+        var_names = [v.strip().upper() for v in text.split(",")]
+
+        # Use interpreter's pre-collected data values
+        data_values = self.interpreter._data_values
+        data_pos = self.interpreter._data_pos
+
+        for var in var_names:
+            if data_pos < len(data_values):
+                self.interpreter.variables[var] = data_values[data_pos]
+                data_pos += 1
+            else:
+                self.interpreter.log_output("Out of DATA")
+                break
+        self.interpreter._data_pos = data_pos
+        return "continue"
+
+    # --- BASIC RESTORE ---
+
+    def _basic_restore(self):
+        """RESTORE – reset DATA pointer to beginning."""
+        self.interpreter._data_pos = 0
+        return "continue"
+
+    # --- BASIC DELAY ---
+
+    def _basic_delay(self, command):
+        """DELAY milliseconds  or  SLEEP seconds"""
+        parts = command.split()
+        if len(parts) > 1:
+            try:
+                val = float(self.interpreter.evaluate_expression(parts[1]))
+                if parts[0].upper() == "SLEEP":
+                    time.sleep(val)
+                else:
+                    time.sleep(val / 1000.0)
+            except Exception:
+                time.sleep(1)
+        return "continue"
+
+    # --- BASIC DO/LOOP ---
+
+    def _basic_do(self, command):
+        """DO [WHILE condition | UNTIL condition]"""
+        rest = command[2:].strip() if len(command) > 2 else ""
+        self.interpreter.do_stack.append({
+            "line": self.interpreter.current_line,
+            "condition": rest,
+        })
+
+        # Evaluate pre-condition if present
+        upper_rest = rest.upper().strip()
+        if upper_rest.startswith("WHILE"):
+            cond = rest[5:].strip()
+            if not self._eval_basic_condition(cond):
+                # Skip to LOOP
+                self.interpreter.do_stack.pop()
+                depth = 1
+                self.interpreter.current_line += 1
+                while self.interpreter.current_line < len(self.interpreter.program_lines):
+                    _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                    lu = lt.strip().upper()
+                    if lu.startswith("DO"):
+                        depth += 1
+                    elif lu.startswith("LOOP"):
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    self.interpreter.current_line += 1
+                return "continue"
+        elif upper_rest.startswith("UNTIL"):
+            cond = rest[5:].strip()
+            if self._eval_basic_condition(cond):
+                # Already true – skip to LOOP
+                self.interpreter.do_stack.pop()
+                depth = 1
+                self.interpreter.current_line += 1
+                while self.interpreter.current_line < len(self.interpreter.program_lines):
+                    _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                    lu = lt.strip().upper()
+                    if lu.startswith("DO"):
+                        depth += 1
+                    elif lu.startswith("LOOP"):
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    self.interpreter.current_line += 1
+                return "continue"
+        return "continue"
+
+    def _basic_loop(self, command):
+        """LOOP [WHILE condition | UNTIL condition]"""
+        if not self.interpreter.do_stack:
+            self.interpreter.log_output("LOOP without DO")
+            return "continue"
+
+        loop = self.interpreter.do_stack[-1]
+        text = re.sub(r'^LOOP\s*', '', command, flags=re.IGNORECASE).strip()
+
+        should_continue = True
+        if text.upper().startswith("WHILE"):
+            cond = text[5:].strip()
+            should_continue = self._eval_basic_condition(cond)
+        elif text.upper().startswith("UNTIL"):
+            cond = text[5:].strip()
+            should_continue = not self._eval_basic_condition(cond)
+
+        if should_continue:
+            self.interpreter.current_line = loop["line"]
+            return "jump"
+        else:
+            self.interpreter.do_stack.pop()
+            return "continue"
+
+    # --- BASIC WHILE/WEND ---
+
+    def _basic_while(self, command):
+        """WHILE condition"""
+        cond = re.sub(r'^WHILE\s+', '', command, flags=re.IGNORECASE).strip()
+        if self._eval_basic_condition(cond):
+            self.interpreter.while_stack.append({
+                "line": self.interpreter.current_line,
+                "condition": cond,
+            })
+            return "continue"
+        else:
+            # Condition false – skip to matching WEND
+            depth = 1
+            self.interpreter.current_line += 1
+            while self.interpreter.current_line < len(self.interpreter.program_lines):
+                _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                if lt.strip().upper().startswith("WHILE"):
+                    depth += 1
+                elif lt.strip().upper() == "WEND":
+                    depth -= 1
+                    if depth == 0:
+                        # current_line is now at WEND; the main loop will +1
+                        return "continue"
+                self.interpreter.current_line += 1
+            return "continue"
+
+    def _basic_wend(self):
+        """WEND – loop back to WHILE."""
+        if not self.interpreter.while_stack:
+            self.interpreter.log_output("WEND without WHILE")
+            return "continue"
+
+        loop = self.interpreter.while_stack[-1]
+        if self._eval_basic_condition(loop["condition"]):
+            self.interpreter.current_line = loop["line"]
+            return "jump"
+        else:
+            self.interpreter.while_stack.pop()
+            return "continue"
+
+    # --- BASIC EXIT ---
+
+    def _basic_exit(self, command):
+        """EXIT FOR/DO/WHILE – handles nested loops with depth tracking."""
+        parts = command.split()
+        what = parts[1].upper() if len(parts) > 1 else "FOR"
+
+        if what == "FOR" and self.interpreter.for_stack:
+            self.interpreter.for_stack.pop()
+            # Skip to matching NEXT (handle nested FOR/NEXT)
+            depth = 1
+            self.interpreter.current_line += 1
+            while self.interpreter.current_line < len(self.interpreter.program_lines):
+                _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                lu = lt.strip().upper()
+                if lu.startswith("FOR "):
+                    depth += 1
+                elif lu.startswith("NEXT"):
+                    depth -= 1
+                    if depth == 0:
+                        break
+                self.interpreter.current_line += 1
+        elif what == "DO" and self.interpreter.do_stack:
+            self.interpreter.do_stack.pop()
+            depth = 1
+            self.interpreter.current_line += 1
+            while self.interpreter.current_line < len(self.interpreter.program_lines):
+                _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                lu = lt.strip().upper()
+                if lu.startswith("DO"):
+                    depth += 1
+                elif lu.startswith("LOOP"):
+                    depth -= 1
+                    if depth == 0:
+                        break
+                self.interpreter.current_line += 1
+        elif what == "WHILE" and self.interpreter.while_stack:
+            self.interpreter.while_stack.pop()
+            depth = 1
+            self.interpreter.current_line += 1
+            while self.interpreter.current_line < len(self.interpreter.program_lines):
+                _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+                lu = lt.strip().upper()
+                if lu.startswith("WHILE ") or lu == "WHILE":
+                    depth += 1
+                elif lu == "WEND":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                self.interpreter.current_line += 1
+        return "continue"
+
+    # --- BASIC SELECT/CASE ---
+
+    def _basic_select(self, command):
+        """SELECT CASE expression"""
+        m = re.match(r'SELECT\s+CASE\s+(.*)', command, re.IGNORECASE)
+        if m:
+            expr_val = self._eval_basic_expression(m.group(1).strip())
+            self.interpreter.select_stack.append({
+                "value": expr_val,
+                "matched": False,
+            })
+        return "continue"
+
+    def _basic_case(self, command):
+        """CASE value / CASE ELSE"""
+        if not self.interpreter.select_stack:
+            return "continue"
+
+        sel = self.interpreter.select_stack[-1]
+        text = re.sub(r'^CASE\s+', '', command, flags=re.IGNORECASE).strip()
+
+        if text.upper() == "ELSE":
+            if not sel["matched"]:
+                sel["matched"] = True
+                return "continue"
+            # Skip to END SELECT
+            return self._skip_to_end_select()
+
+        # Check if this CASE matches
+        case_val = self._eval_basic_expression(text)
+        if case_val == sel["value"] and not sel["matched"]:
+            sel["matched"] = True
+            return "continue"
+        else:
+            # Skip to next CASE or END SELECT
+            return self._skip_to_next_case()
+
+    def _skip_to_end_select(self):
+        depth = 1
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            upper_lt = lt.strip().upper()
+            if upper_lt.startswith("SELECT"):
+                depth += 1
+            elif upper_lt == "END SELECT":
+                depth -= 1
+                if depth == 0:
+                    self.interpreter.select_stack.pop()
+                    break
+            self.interpreter.current_line += 1
+        return "continue"
+
+    def _skip_to_next_case(self):
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            upper_lt = lt.strip().upper()
+            if upper_lt.startswith("CASE") or upper_lt == "END SELECT":
+                self.interpreter.current_line -= 1  # Will be incremented by main loop
+                break
+            self.interpreter.current_line += 1
+        return "continue"
+
+    # --- BASIC SWAP ---
+
+    def _basic_swap(self, command):
+        """SWAP var1, var2"""
+        text = re.sub(r'^SWAP\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip().upper() for p in text.split(",")]
+        if len(parts) == 2:
+            v1 = self.interpreter.variables.get(parts[0], 0)
+            v2 = self.interpreter.variables.get(parts[1], 0)
+            self.interpreter.variables[parts[0]] = v2
+            self.interpreter.variables[parts[1]] = v1
+        return "continue"
+
+    # --- BASIC INCR / DECR ---
+
+    def _basic_incr_decr(self, command, direction):
+        """INCR var [, amount]  or  DECR var [, amount]"""
+        text = re.sub(r'^(INCR|DECR)\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        var_name = parts[0].upper()
+        amount = 1
+        if len(parts) > 1:
+            try:
+                amount = float(self.interpreter.evaluate_expression(parts[1]))
+            except Exception:
+                amount = 1
+        current = float(self.interpreter.variables.get(var_name, 0))
+        new_val = current + (amount * direction)
+        self.interpreter.variables[var_name] = int(new_val) if new_val == int(new_val) else new_val
+        return "continue"
+
+    # --- BASIC math/string functions (as statements) ---
+
+    def _basic_math_func(self, command):
+        """Handle math function calls as print statements."""
+        self.interpreter.log_output(str(self._eval_basic_expression(command)))
+        return "continue"
+
+    def _basic_string_func(self, command):
+        """Handle string function calls as print statements."""
+        self.interpreter.log_output(str(self._eval_basic_expression(command)))
+        return "continue"
+
+    # ==================================================================
+    #  New BASIC commands (ELSEIF, ON, BEEP, TAB, SPC)
+    # ==================================================================
+
+    def _basic_elseif(self, command):
+        """ELSEIF condition THEN statement — mid-block branch.
+
+        Reached when a preceding IF/ELSEIF block was executed, so we
+        need to skip ahead to END IF (same logic as ELSE).
+        """
+        # If we reach here normally, the prior IF/ELSEIF was true –
+        # skip to END IF.
+        depth = 1
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            lu = lt.strip().upper()
+            if lu.startswith("IF ") and (lu.endswith("THEN") or " THEN " in lu):
+                depth += 1
+            elif lu in ("END IF", "ENDIF"):
+                depth -= 1
+                if depth == 0:
+                    return "continue"
+            self.interpreter.current_line += 1
+        return "continue"
+
+    def _basic_on(self, command):
+        """ON expr GOTO label1,label2,...  or  ON expr GOSUB label1,label2,..."""
+        m = re.match(r'ON\s+(.+?)\s+(GOTO|GOSUB)\s+(.*)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("ON syntax: ON expr GOTO/GOSUB target1, target2, ...")
+            return "continue"
+        expr_val = int(float(self._eval_basic_expression(m.group(1).strip())))
+        mode = m.group(2).upper()
+        targets = [t.strip() for t in m.group(3).split(",")]
+        if expr_val < 1 or expr_val > len(targets):
+            return "continue"  # out of range – fall through
+        target = targets[expr_val - 1]
+        if mode == "GOSUB":
+            return self._basic_gosub(f"GOSUB {target}")
+        else:
+            return self._basic_goto(f"GOTO {target}")
+
+    def _basic_beep(self):
+        """BEEP — emit a system bell."""
+        try:
+            print("\a", end="", flush=True)
+        except Exception:
+            pass
+        return "continue"
+
+    def _basic_tab(self, command):
+        """TAB n — print spaces to move to column n."""
+        parts = command.split()
+        n = int(float(self._eval_basic_expression(parts[1]))) if len(parts) > 1 else 8
+        self.interpreter.log_output(" " * n, end="")
+        return "continue"
+
+    def _basic_spc(self, command):
+        """SPC n — print n spaces."""
+        parts = command.split()
+        n = int(float(self._eval_basic_expression(parts[1]))) if len(parts) > 1 else 1
+        self.interpreter.log_output(" " * n, end="")
+        return "continue"
+
+    # ==================================================================
+    #  Logo LABEL command
+    # ==================================================================
+
+    def _logo_label(self, parts):
+        """LABEL \"text\" [size] — draw text at the turtle's current position."""
+        self._ensure_turtle()
+        text = " ".join(parts[1:]).strip().strip('"')
+        size = 12
+        # Check for trailing number as font size
+        tokens = text.rsplit(None, 1)
+        if len(tokens) == 2:
+            try:
+                size = int(tokens[1])
+                text = tokens[0]
+            except ValueError:
+                pass
+        self.interpreter.turtle_text(text, size)
+        return "continue"
+
+    # ==================================================================
+    #  Expression evaluation helpers
+    # ==================================================================
+
+    def _eval_basic_expression(self, expr):
+        """Evaluate a BASIC expression (string or numeric)."""
+        expr = expr.strip()
+        if not expr:
+            return ""
+
+        # String literal
+        if expr.startswith('"') and expr.endswith('"'):
+            return expr[1:-1]
+
+        # String concatenation with +
+        if '"' in expr and '+' in expr:
+            parts = self._split_string_concat(expr)
+            return "".join(str(self._eval_basic_expression(p.strip())) for p in parts)
+
+        # Variable reference (including A$ string vars)
+        if re.match(r'^[A-Za-z_]\w*\$?$', expr):
+            var_name = expr.upper()
+            # Pseudo-variables take priority over regular variables
+            if var_name == "TIMER":
+                return round(time.time() - self.interpreter._program_start_time, 3)
+            if var_name == "DATE$":
+                import datetime as _dt
+                return _dt.date.today().isoformat()
+            if var_name == "TIME$":
+                import datetime as _dt
+                return _dt.datetime.now().strftime("%H:%M:%S")
+            val = self.interpreter.variables.get(var_name, 0)
+            return val
+
+        # BASIC built-in functions
+        upper_expr = expr.upper()
+
+        # TIMER pseudo-variable
+        if upper_expr == "TIMER":
+            return round(time.time() - self.interpreter._program_start_time, 3)
+
+        # DATE$ and TIME$ pseudo-variables
+        if upper_expr == "DATE$":
+            import datetime as _dt
+            return _dt.date.today().isoformat()
+        if upper_expr == "TIME$":
+            import datetime as _dt
+            return _dt.datetime.now().strftime("%H:%M:%S")
+
+        # TYPE() function
+        type_match = re.match(r'^TYPE\((.+)\)$', upper_expr)
+        if type_match:
+            val = self._eval_basic_expression(type_match.group(1))
+            if isinstance(val, str):
+                return "STRING"
+            elif isinstance(val, (int, float)):
+                return "NUMBER"
+            elif isinstance(val, (list, dict)):
+                return "ARRAY"
+            return "UNKNOWN"
+
+        # RND function
+        rnd_match = re.match(r'^RND(?:\(([^)]*)\))?$', upper_expr)
+        if rnd_match:
+            arg = rnd_match.group(1)
+            if arg:
+                n = int(float(self.interpreter.evaluate_expression(arg)))
+                return random.randint(1, max(1, n))
+            return random.random()
+
+        # INT function
+        int_match = re.match(r'^INT\((.+)\)$', upper_expr)
+        if int_match:
+            return int(float(self._eval_basic_expression(int_match.group(1))))
+
+        # ABS function
+        abs_match = re.match(r'^ABS\((.+)\)$', upper_expr)
+        if abs_match:
+            return abs(float(self._eval_basic_expression(abs_match.group(1))))
+
+        # SQRT function
+        sqrt_match = re.match(r'^SQRT?\((.+)\)$', upper_expr)
+        if sqrt_match:
+            return math.sqrt(float(self._eval_basic_expression(sqrt_match.group(1))))
+
+        # Trig functions
+        for fn, func in [("SIN", math.sin), ("COS", math.cos), ("TAN", math.tan), ("ATN", math.atan), ("ATAN", math.atan)]:
+            fn_match = re.match(rf'^{fn}\((.+)\)$', upper_expr)
+            if fn_match:
+                return func(float(self._eval_basic_expression(fn_match.group(1))))
+
+        # LOG, EXP
+        log_match = re.match(r'^LOG\((.+)\)$', upper_expr)
+        if log_match:
+            return math.log(float(self._eval_basic_expression(log_match.group(1))))
+        exp_match = re.match(r'^EXP\((.+)\)$', upper_expr)
+        if exp_match:
+            return math.exp(float(self._eval_basic_expression(exp_match.group(1))))
+
+        # CEIL function
+        ceil_match = re.match(r'^CEIL\((.+)\)$', upper_expr)
+        if ceil_match:
+            return math.ceil(float(self._eval_basic_expression(ceil_match.group(1))))
+
+        # FIX function (truncate toward zero)
+        fix_match = re.match(r'^FIX\((.+)\)$', upper_expr)
+        if fix_match:
+            val = float(self._eval_basic_expression(fix_match.group(1)))
+            return int(val) if val >= 0 else -int(-val)
+
+        # String functions
+        len_match = re.match(r'^LEN\((.+)\)$', upper_expr)
+        if len_match:
+            return len(str(self._eval_basic_expression(len_match.group(1))))
+
+        mid_match = re.match(r'^MID\$?\((.+),\s*(.+),\s*(.+)\)$', upper_expr)
+        if mid_match:
+            s = str(self._eval_basic_expression(mid_match.group(1)))
+            start = int(float(self._eval_basic_expression(mid_match.group(2)))) - 1
+            length = int(float(self._eval_basic_expression(mid_match.group(3))))
+            return s[start:start + length]
+
+        left_match = re.match(r'^LEFT\$?\((.+),\s*(.+)\)$', upper_expr)
+        if left_match:
+            s = str(self._eval_basic_expression(left_match.group(1)))
+            n = int(float(self._eval_basic_expression(left_match.group(2))))
+            return s[:n]
+
+        right_match = re.match(r'^RIGHT\$?\((.+),\s*(.+)\)$', upper_expr)
+        if right_match:
+            s = str(self._eval_basic_expression(right_match.group(1)))
+            n = int(float(self._eval_basic_expression(right_match.group(2))))
+            return s[-n:] if n > 0 else ""
+
+        chr_match = re.match(r'^CHR\$?\((.+)\)$', upper_expr)
+        if chr_match:
+            return chr(int(float(self._eval_basic_expression(chr_match.group(1)))))
+
+        asc_match = re.match(r'^ASC\((.+)\)$', upper_expr)
+        if asc_match:
+            s = str(self._eval_basic_expression(asc_match.group(1)))
+            return ord(s[0]) if s else 0
+
+        str_match = re.match(r'^STR\$?\((.+)\)$', upper_expr)
+        if str_match:
+            return str(self._eval_basic_expression(str_match.group(1)))
+
+        val_match = re.match(r'^VAL\((.+)\)$', upper_expr)
+        if val_match:
+            try:
+                return float(str(self._eval_basic_expression(val_match.group(1))))
+            except ValueError:
+                return 0
+
+        ucase_match = re.match(r'^UCASE\$?\((.+)\)$', upper_expr)
+        if ucase_match:
+            return str(self._eval_basic_expression(ucase_match.group(1))).upper()
+
+        lcase_match = re.match(r'^LCASE\$?\((.+)\)$', upper_expr)
+        if lcase_match:
+            return str(self._eval_basic_expression(lcase_match.group(1))).lower()
+
+        instr_match = re.match(r'^INSTR\((.+),\s*(.+)\)$', upper_expr)
+        if instr_match:
+            haystack = str(self._eval_basic_expression(instr_match.group(1)))
+            needle = str(self._eval_basic_expression(instr_match.group(2)))
+            pos = haystack.find(needle)
+            return pos + 1 if pos >= 0 else 0
+
+        # Array access
+        arr_match = re.match(r'^(\w+)\((.+)\)$', expr)
+        if arr_match:
+            arr_name = arr_match.group(1).upper()
+            idx = int(float(self.interpreter.evaluate_expression(arr_match.group(2))))
+            if arr_name in self.arrays:
+                if 0 <= idx < len(self.arrays[arr_name]):
+                    return self.arrays[arr_name][idx]
+            # Check interpreter variables
+            return self.interpreter.variables.get(f"{arr_name}({idx})", 0)
+
+        # Fall through to interpreter's evaluate_expression
+        try:
+            return self.interpreter.evaluate_expression(expr)
+        except Exception:
+            return expr
+
+    def _split_string_concat(self, expr):
+        """Split a string concatenation expression respecting quotes."""
+        parts = []
+        current = []
+        in_string = False
+        for ch in expr:
+            if ch == '"':
+                in_string = not in_string
+                current.append(ch)
+            elif ch == '+' and not in_string:
+                parts.append(''.join(current))
+                current = []
+            else:
+                current.append(ch)
+        if current:
+            parts.append(''.join(current))
+        return parts
+
+    def _eval_basic_condition(self, condition):
+        """Evaluate a BASIC condition to True/False."""
+        condition = condition.strip()
+
+        # Handle AND / OR
+        if ' AND ' in condition.upper():
+            parts = re.split(r'\bAND\b', condition, flags=re.IGNORECASE)
+            return all(self._eval_basic_condition(p) for p in parts)
+        if ' OR ' in condition.upper():
+            parts = re.split(r'\bOR\b', condition, flags=re.IGNORECASE)
+            return any(self._eval_basic_condition(p) for p in parts)
+        if condition.upper().startswith("NOT "):
+            return not self._eval_basic_condition(condition[4:])
+
+        # Comparison operators
+        for op, func in [
+            ("<>", lambda a, b: a != b),
+            ("<=", lambda a, b: a <= b),
+            (">=", lambda a, b: a >= b),
+            ("!=", lambda a, b: a != b),
+            ("==", lambda a, b: a == b),
+            ("<", lambda a, b: a < b),
+            (">", lambda a, b: a > b),
+            ("=", lambda a, b: a == b),
+        ]:
+            if op in condition:
+                left, right = condition.split(op, 1)
+                left_val = self._eval_basic_expression(left.strip())
+                right_val = self._eval_basic_expression(right.strip())
+                try:
+                    return func(float(left_val), float(right_val))
+                except (ValueError, TypeError):
+                    return func(str(left_val), str(right_val))
+
+        # Truthy evaluation
+        val = self._eval_basic_expression(condition)
+        return bool(val)

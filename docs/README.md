@@ -1,0 +1,155 @@
+# TempleCode Classic - Documentation Index
+
+Welcome to the complete documentation for TempleCode Classic IDE.
+
+---
+
+## 📖 Documentation Suite
+
+### For Users
+
+| Document | Description |
+|----------|-------------|
+| **[Quick Start Guide](user/QUICKSTART.md)** | Get up and running in 5 minutes |
+| **[User Manual](user/USER_MANUAL.md)** | Complete guide to using the IDE |
+| **[Example Programs](../examples/README.md)** | Guided tour of all example programs |
+
+### For Developers
+
+| Document | Description |
+|----------|-------------|
+| **[Technical Manual](dev/TECHNICAL_MANUAL.md)** | Architecture and implementation details |
+| **[Developer Guide](../README.md#contributing)** | Contributing and extending TempleCode |
+
+### Reference Materials
+
+| Document | Description |
+|----------|-------------|
+| **[Main README](../README.md)** | Project overview and quick reference |
+| **[Keyboard Shortcuts](user/USER_MANUAL.md#keyboard-shortcuts)** | Quick reference for key bindings |
+
+---
+
+## 🎯 Where to Start
+
+### I'm new to TempleCode
+👉 Start with **[Quick Start Guide](user/QUICKSTART.md)**
+
+### I want to learn the IDE
+👉 Read the **[User Manual](user/USER_MANUAL.md)**
+
+### I want to see examples
+👉 Check out **[Example Programs](../examples/README.md)**
+
+### I want to understand internals
+👉 Study the **[Technical Manual](dev/TECHNICAL_MANUAL.md)**
+
+### I want to contribute
+👉 See **[Contributing](../README.md#contributing)**
+
+---
+
+## 📚 Documentation by Topic
+
+### Getting Started
+- [Installation](user/QUICKSTART.md#1-install-python-if-needed)
+- [First Launch](user/QUICKSTART.md#4-launch-the-ide)
+- [First Program](user/QUICKSTART.md#5-write-your-first-program)
+- [Loading Examples](user/QUICKSTART.md#6-load-an-example)
+
+### Using the IDE
+- [Interface Overview](user/USER_MANUAL.md#ide-interface)
+- [Working with Files](user/USER_MANUAL.md#working-with-files)
+- [Running Programs](user/USER_MANUAL.md#writing-and-running-programs)
+- [Customizing](user/USER_MANUAL.md#customizing-the-ide)
+
+### Programming Language
+- [TempleCode Language](../README.md#-supported-languages)
+- [TempleCode Examples](../examples/templecode/)
+
+### Turtle Graphics
+- [Using Turtle Graphics](user/USER_MANUAL.md#using-turtle-graphics)
+- [Coordinate System](user/USER_MANUAL.md#coordinate-system)
+- [Drawing Examples](user/USER_MANUAL.md#example-drawing-a-square)
+- [Technical Details](dev/TECHNICAL_MANUAL.md#turtle-graphics-engine)
+
+### Troubleshooting
+- [Common Issues](user/USER_MANUAL.md#troubleshooting)
+- [Quick Fixes](user/QUICKSTART.md#troubleshooting)
+- [Getting Help](user/USER_MANUAL.md#getting-help)
+
+### Advanced Topics
+- [Architecture](dev/TECHNICAL_MANUAL.md#architecture-overview)
+- [Core Components](dev/TECHNICAL_MANUAL.md#core-components)
+- [Language System](dev/TECHNICAL_MANUAL.md#language-execution-system)
+- [Extending](dev/TECHNICAL_MANUAL.md#extension-points)
+
+---
+
+## 🔍 Search by Task
+
+### I want to...
+
+**...start programming quickly**
+- [Quick Start Guide](user/QUICKSTART.md)
+
+**...learn a specific language**
+- [Load examples](../examples/README.md) in that language
+- Study the code and run it
+
+**...draw graphics**
+- [Turtle Graphics Guide](user/USER_MANUAL.md#using-turtle-graphics)
+- [Logo Examples](../examples/logo/)
+
+**...customize the IDE**
+- [Themes and Fonts](user/USER_MANUAL.md#customizing-the-ide)
+- [Preferences Menu](user/USER_MANUAL.md#preferences-menu)
+
+**...save my programs**
+- [Working with Files](user/USER_MANUAL.md#working-with-files)
+
+**...understand how it works**
+- [Technical Manual](dev/TECHNICAL_MANUAL.md)
+
+**...add a new language**
+- [Extension Points](dev/TECHNICAL_MANUAL.md#extension-points)
+
+**...report a bug**
+- [GitHub Issues](https://github.com/James-HoneyBadger/TempleCode/issues)
+
+---
+
+## 📝 Documentation Standards
+
+All TempleCode documentation follows these principles:
+
+1. **Clear and Concise** - Get to the point quickly
+2. **Examples Included** - Show, don't just tell
+3. **Progressive Difficulty** - Start simple, build up
+4. **Cross-Referenced** - Link to related docs
+5. **Up-to-Date** - Matches current version (1.0.0)
+
+---
+
+## 🤝 Contributing to Documentation
+
+Found an error? Want to improve the docs?
+
+1. Documentation source is in `docs/` directory
+2. Written in Markdown format
+3. Submit improvements via pull request
+4. Follow existing style and structure
+
+---
+
+## 📞 Documentation Support
+
+- **Missing documentation?** Open an issue
+- **Found an error?** Submit a pull request
+- **Need clarification?** Ask in discussions
+
+---
+
+**Complete Documentation for Complete Programming** 📚
+
+© 2025 Honey Badger Universe | Documentation
