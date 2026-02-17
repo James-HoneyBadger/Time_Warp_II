@@ -33,10 +33,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/James-HoneyBadger/TempleCode"
-Documentation = "https://github.com/James-HoneyBadger/TempleCode/tree/main/docs"
-Repository = "https://github.com/James-HoneyBadger/TempleCode.git"
-Issues = "https://github.com/James-HoneyBadger/TempleCode/issues"
+Homepage = "https://github.com/James-HoneyBadger/Time_Warp_II"
+Documentation = "https://github.com/James-HoneyBadger/Time_Warp_II/tree/main/docs"
+Repository = "https://github.com/James-HoneyBadger/Time_Warp_II.git"
+Issues = "https://github.com/James-HoneyBadger/Time_Warp_II/issues"
 
 [project.scripts]
 timewarpii = "TimeWarpII:main"

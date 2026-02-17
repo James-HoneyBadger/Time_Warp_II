@@ -1,11 +1,11 @@
-# TempleCode IDE
+# Time Warp II
 
-> **A Single-Language Programming Environment for the TempleCode Language**
+> **A Special Version of Time Warp Classic — Built Specifically for the TempleCode Language**
 > **BASIC + PILOT + Logo fused into one — as if from the early 1990s.**
 
-TempleCode is an educational IDE for the **TempleCode language**, a fusion of BASIC, PILOT, and Logo. Write programs that mix line-numbered BASIC statements, PILOT interactive commands, and Logo turtle graphics — all in a single `.tc` file.
+Time Warp II is an educational IDE and a special version of **Time Warp Classic** with various enhancements and revisions, designed specifically for the **TempleCode language** — a fusion of BASIC, PILOT, and Logo. Write programs that mix line-numbered BASIC statements, PILOT interactive commands, and Logo turtle graphics — all in a single `.tc` file.
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/James-HoneyBadger/TempleCode)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/James-HoneyBadger/Time_Warp_II)
 [![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
@@ -56,8 +56,8 @@ All three styles can be freely mixed in a single program.
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/James-HoneyBadger/TempleCode.git
-   cd TempleCode
+   git clone https://github.com/James-HoneyBadger/Time_Warp_II.git
+   cd Time_Warp_II
    ```
 
 2. **Install dependencies:**
@@ -74,12 +74,12 @@ All three styles can be freely mixed in a single program.
 
 3. **Launch the IDE:**
    ```bash
-   python TempleCode.py
+   python TimeWarpII.py
    ```
 
 ## 🧪 Testing
 
-TempleCode includes a comprehensive test suite to ensure code quality and reliability.
+Time Warp II includes a comprehensive test suite to ensure code quality and reliability.
 
 ### Running Tests
 
@@ -128,7 +128,7 @@ Tests use pytest with fixtures for common setup:
 
 ### Using the GUI
 
-When you launch TempleCode.py, you'll see the main IDE interface:
+When you launch TimeWarpII.py, you'll see the main IDE interface:
 
 1. **Write Code** — Use the editor panel to write TempleCode (`.tc`)
 2. **Run Program** — Press **F5** or use **Program → Run Program**
@@ -231,8 +231,8 @@ REPEAT 36 [FORWARD 100 RIGHT 170]
 ## 🗂️ Project Structure
 
 ```
-TempleCode/
-├── TempleCode.py              # Main application entry point
+Time_Warp_II/
+├── TimeWarpII.py              # Main application entry point
 ├── README.md                 # This file
 ├── requirements.txt          # Python dependencies
 ├── pyproject.toml           # Python project configuration
@@ -266,7 +266,7 @@ TempleCode/
 │
 └── scripts/                # Launcher scripts
     ├── launch.py           # Python launcher
-    ├── launch_TempleCode.sh # Shell launcher
+    ├── launch_TimeWarpII.sh # Shell launcher
     └── start.sh            # Simple launcher
 ```
 
@@ -357,8 +357,8 @@ Contributions are welcome! Please see **[DEVELOPER_GUIDE.md](docs/DEVELOPER_GUID
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/TempleCode.git
-cd TempleCode
+git clone https://github.com/YOUR_USERNAME/Time_Warp_II.git
+cd Time_Warp_II
 
 # Create virtual environment
 python -m venv venv
@@ -392,14 +392,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **PILOT** — Inspired by John Amsden Starkweather's original design (1968)
 - **Logo** — Honoring Seymour Papert's educational computing legacy (1967)
 - **Classic Computing Community** — For keeping vintage computing alive
-- **Open Source Contributors** — Everyone who helps improve TempleCode
+- **Open Source Contributors** — Everyone who helps improve Time Warp II
 
 ---
 
 ## 📞 Support
 
 - **Documentation:** See the `docs/` directory
-- **Issues:** Report bugs on [GitHub Issues](https://github.com/James-HoneyBadger/TempleCode/issues)
+- **Issues:** Report bugs on [GitHub Issues](https://github.com/James-HoneyBadger/Time_Warp_II/issues)
 - **Questions:** Check the [FAQ](docs/FAQ.md) first
 - **Community:** Share your `.tc` programs and experiences!
 
@@ -429,6 +429,6 @@ Use PILOT's `T:`/`A:`/`M:` commands to build interactive quizzes and lessons.
 
 ---
 
-**TempleCode** — *One language, three heritages.* 🕰️
+**Time Warp II** — *One IDE, one language, three heritages.* 🕰️
 
 © 2025 Honey Badger Universe | Educational Software

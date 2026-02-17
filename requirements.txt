@@ -1,4 +1,4 @@
-# TempleCode IDE Requirements
+# Time Warp II Requirements
 # Core dependencies for the Educational Programming IDE
 
 # Runtime dependencies (most included with Python standard library)

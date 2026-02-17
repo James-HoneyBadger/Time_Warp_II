@@ -1,9 +1,9 @@
-# TempleCode IDE - Setup & Launch Guide
+# Time Warp II - Setup & Launch Guide
 
 ## Quick Start
 
 ### Option 1: Python Script (Cross-Platform Recommended)
-The easiest way to set up and launch TempleCode IDE on any operating system:
+The easiest way to set up and launch Time Warp II on any operating system:
 
 ```bash
 python3 run.py
@@ -76,7 +76,7 @@ python3 run.py --help
 3. Upgrades pip, setuptools, and wheel
 4. Installs all dependencies from `requirements.txt`
 5. Verifies tkinter (required) and optional packages
-6. Launches `TempleCode.py`
+6. Launches `TimeWarpII.py`
 
 ### Method 2: Bash Script (Linux/macOS)
 
@@ -137,7 +137,7 @@ pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 
 # Launch the application
-python3 TempleCode.py
+python3 TimeWarpII.py
 ```
 
 ---
@@ -235,7 +235,7 @@ Common issues:
 
 ## Virtual Environment Management
 
-The scripts automatically create and manage a `venv/` directory in the TempleCode IDE folder.
+The scripts automatically create and manage a `venv/` directory in the Time Warp II folder.
 
 ### Deleting the Virtual Environment
 
@@ -259,10 +259,10 @@ source venv/bin/activate
 venv\Scripts\activate
 ```
 
-Once activated, run TempleCode with installed dependencies:
+Once activated, run Time Warp II with installed dependencies:
 
 ```bash
-python3 TempleCode.py
+python3 TimeWarpII.py
 ```
 
 Deactivate when done:
@@ -275,7 +275,7 @@ deactivate
 
 ## Dependencies
 
-TempleCode IDE requires:
+Time Warp II requires:
 
 **Required:**
 - `tkinter` — GUI framework (usually bundled with Python)
@@ -294,7 +294,7 @@ TempleCode IDE requires:
 
 ## The TempleCode Language
 
-TempleCode IDE runs a single language: **TempleCode** (file extension `.tc`).
+Time Warp II runs a single language: **TempleCode** (file extension `.tc`).
 
 TempleCode is a fusion of three classic educational languages:
 
@@ -339,8 +339,8 @@ All three styles can be freely mixed in a single `.tc` program. See the [TempleC
 ## File Structure
 
 ```
-TempleCode/
-├── TempleCode.py              # Main GUI application
+Time_Warp_II/
+├── TimeWarpII.py              # Main GUI application
 ├── run.py                    # Python launcher (cross-platform)
 ├── run.sh                    # Bash launcher (Linux/macOS)
 ├── run.bat                   # Batch launcher (Windows)
@@ -370,7 +370,7 @@ TempleCode/
 
 ### Command Line
 ```bash
-cd /path/to/TempleCode
+cd /path/to/Time_Warp_II
 python3 run.py
 ```
 
@@ -380,14 +380,14 @@ python3 run.py
 
 ### Creating a Desktop Shortcut (Linux)
 
-Create `~/.local/share/applications/TempleCode.desktop`:
+Create `~/.local/share/applications/TimeWarpII.desktop`:
 
 ```ini
 [Desktop Entry]
 Type=Application
-Name=TempleCode IDE
-Comment=TempleCode language IDE (BASIC + PILOT + Logo)
-Exec=/home/username/TempleCode/run.py
+Name=Time Warp II
+Comment=Time Warp II IDE for the TempleCode language (BASIC + PILOT + Logo)
+Exec=/home/username/Time_Warp_II/run.py
 Icon=python
 Terminal=false
 Categories=Development;IDE;Education;
@@ -395,7 +395,7 @@ Categories=Development;IDE;Education;
 
 Then:
 ```bash
-chmod +x ~/.local/share/applications/TempleCode.desktop
+chmod +x ~/.local/share/applications/TimeWarpII.desktop
 ```
 
 ### Environment Variables
@@ -417,7 +417,7 @@ python3 run.py
 
 ### Development Mode
 
-For contributors working on TempleCode IDE:
+For contributors working on Time Warp II:
 
 ```bash
 # Activate the venv
@@ -434,7 +434,7 @@ black . --check
 flake8 .
 
 # Run the IDE
-python3 TempleCode.py
+python3 TimeWarpII.py
 ```
 
 ---
@@ -442,7 +442,7 @@ python3 TempleCode.py
 ## Getting Help
 
 ### Built-in Help
-- Use the **Help** menu in the TempleCode IDE GUI
+- Use the **Help** menu in the Time Warp II GUI
 - Check `examples/templecode/` for sample `.tc` programs
 
 ### Online Resources
@@ -454,7 +454,7 @@ python3 TempleCode.py
 
 ## License
 
-TempleCode IDE  
+Time Warp II  
 Copyright © 2025 Honey Badger Universe
 
 See `License.md` for full license information.
@@ -477,4 +477,4 @@ See `License.md` for full license information.
 
 ---
 
-**Enjoy coding in TempleCode IDE!** 🚀
+**Enjoy coding in Time Warp II!** 🚀

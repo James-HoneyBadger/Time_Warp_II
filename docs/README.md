@@ -1,6 +1,6 @@
-# TempleCode Classic - Documentation Index
+# Time Warp II - Documentation Index
 
-Welcome to the complete documentation for TempleCode Classic IDE.
+Welcome to the complete documentation for Time Warp II — a special version of Time Warp Classic with enhancements specifically for the TempleCode language.
 
 ---
 
@@ -19,7 +19,7 @@ Welcome to the complete documentation for TempleCode Classic IDE.
 | Document | Description |
 |----------|-------------|
 | **[Technical Manual](dev/TECHNICAL_MANUAL.md)** | Architecture and implementation details |
-| **[Developer Guide](../README.md#contributing)** | Contributing and extending TempleCode |
+| **[Developer Guide](../README.md#contributing)** | Contributing and extending Time Warp II |
 
 ### Reference Materials
 
@@ -32,7 +32,7 @@ Welcome to the complete documentation for TempleCode Classic IDE.
 
 ## 🎯 Where to Start
 
-### I'm new to TempleCode
+### I'm new to Time Warp II
 👉 Start with **[Quick Start Guide](user/QUICKSTART.md)**
 
 ### I want to learn the IDE
@@ -115,13 +115,13 @@ Welcome to the complete documentation for TempleCode Classic IDE.
 - [Extension Points](dev/TECHNICAL_MANUAL.md#extension-points)
 
 **...report a bug**
-- [GitHub Issues](https://github.com/James-HoneyBadger/TempleCode/issues)
+- [GitHub Issues](https://github.com/James-HoneyBadger/Time_Warp_II/issues)
 
 ---
 
 ## 📝 Documentation Standards
 
-All TempleCode documentation follows these principles:
+All Time Warp II documentation follows these principles:
 
 1. **Clear and Concise** - Get to the point quickly
 2. **Examples Included** - Show, don't just tell

@@ -1,17 +1,17 @@
 # Troubleshooting Guide
 
-Solutions for common issues in TempleCode IDE.
+Solutions for common issues in Time Warp II.
 
 ## Getting Started Issues
 
-### Cannot Find TempleCode Application
+### Cannot Find Time Warp II Application
 
 **Problem:** Python file won't launch
 
 **Solutions:**
 1. Ensure Python 3.9+ is installed: `python --version`
 2. Install tkinter: `sudo apt-get install python3-tk` (Linux) or through Python installer (Windows)
-3. Run from terminal: `python TempleCode.py`
+3. Run from terminal: `python TimeWarpII.py`
 
 ### Window Doesn't Open
 
@@ -19,7 +19,7 @@ Solutions for common issues in TempleCode IDE.
 
 **Solutions:**
 1. Check for errors in terminal
-2. Try with `PYTHONUNBUFFERED=1 python TempleCode.py`
+2. Try with `PYTHONUNBUFFERED=1 python TimeWarpII.py`
 3. Check Python PATH: `which python`
 4. Reinstall tkinter
 

@@ -1,12 +1,12 @@
 # Frequently Asked Questions
 
-Common questions about TempleCode IDE.
+Common questions about Time Warp II.
 
 ## General Questions
 
-### What is TempleCode IDE?
+### What is Time Warp II?
 
-TempleCode IDE is a single-language IDE for the **TempleCode programming language**, a fusion of BASIC, PILOT, and Logo.
+Time Warp II is a special version of **Time Warp Classic** with various enhancements and revisions, designed specifically as a single-language IDE for the **TempleCode programming language**, a fusion of BASIC, PILOT, and Logo.
 
 It's designed for learning programming, teaching, and exploring retro-inspired educational computing.
 
@@ -19,7 +19,7 @@ It's designed for learning programming, teaching, and exploring retro-inspired e
 
 ### Is it free?
 
-Yes! TempleCode IDE is open-source and completely free to use.
+Yes! Time Warp II is open-source and completely free to use.
 
 ### What platforms does it support?
 
@@ -29,18 +29,18 @@ Yes! TempleCode IDE is open-source and completely free to use.
 
 ### Can I use it offline?
 
-Yes, TempleCode IDE runs completely offline. No internet connection needed.
+Yes, Time Warp II runs completely offline. No internet connection needed.
 
 ---
 
 ## Installation & Setup
 
-### How do I install TempleCode IDE?
+### How do I install Time Warp II?
 
 1. Ensure Python 3.9+ is installed
 2. Install tkinter if needed
 3. Download or clone the repository
-4. Run: `python TempleCode.py`
+4. Run: `python TimeWarpII.py`
 
 See [QUICK_START.md](QUICK_START.md) for detailed instructions.
 
@@ -74,7 +74,7 @@ Yes, as long as Python is installed on the target computer.
 
 ### How do I select a language?
 
-TempleCode IDE uses the TempleCode language exclusively. Simply write your code and run it — no language selection needed.
+Time Warp II uses the TempleCode language exclusively. Simply write your code and run it — no language selection needed.
 
 ### What's the keyboard shortcut to run code?
 
@@ -165,7 +165,7 @@ In the directory you specify. Usually current directory or Documents.
 
 ### Can I open files from other editors?
 
-Yes, TempleCode can open any text file with appropriate code.
+Yes, Time Warp II can open any text file with appropriate code.
 
 ### Can I share my programs?
 
@@ -265,7 +265,7 @@ Check Preferences for shortcuts configuration.
 
 ### Can I change the default language?
 
-TempleCode IDE uses the TempleCode language exclusively, so no language switching is needed.
+Time Warp II uses the TempleCode language exclusively, so no language switching is needed.
 
 ---
 
@@ -319,7 +319,7 @@ Check GitHub repository for discussions and community links.
 
 ## Advanced Topics
 
-### How do I extend TempleCode?
+### How do I extend Time Warp II?
 
 See [TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md) for:
 - Architecture overview
@@ -332,7 +332,7 @@ Yes, see [LANGUAGE_IMPLEMENTATIONS.md](dev/LANGUAGE_IMPLEMENTATIONS.md) for how 
 
 ### How does the language detection work?
 
-TempleCode IDE uses the TempleCode language exclusively. The interpreter parses your program and recognizes BASIC, PILOT, and Logo commands as part of the unified TempleCode syntax.
+Time Warp II uses the TempleCode language exclusively. The interpreter parses your program and recognizes BASIC, PILOT, and Logo commands as part of the unified TempleCode syntax.
 
 ### Can I use TempleCode in a classroom?
 
@@ -350,13 +350,13 @@ Yes! It's designed for education. Multiple students can:
 
 **1 language: TempleCode** — a fusion of BASIC, PILOT, and Logo into one educational programming language.
 
-### How many lines of code in TempleCode?
+### How many lines of code in Time Warp II?
 
 Several thousand lines of Python implementing the interpreter and IDE.
 
 ### When was it created?
 
-TempleCode IDE is a modern retro-computing project honoring classic languages.
+Time Warp II is a modern retro-computing project honoring classic languages.
 
 ---
 

@@ -1,4 +1,4 @@
-# TempleCode IDE - Code Examples
+# Time Warp II - Code Examples
 
 This directory contains example programs for the **TempleCode** language, demonstrating BASIC, PILOT, and Logo features — all in `.tc` files.
 
@@ -111,7 +111,7 @@ REPEAT 36 [FORWARD 80 RIGHT 170]
 
 ### From the IDE
 
-1. **Launch TempleCode IDE:**
+1. **Launch Time Warp II:**
    ```bash
    python3 run.py
    ```
@@ -130,8 +130,8 @@ REPEAT 36 [FORWARD 80 RIGHT 170]
 ### From the Command Line
 
 ```bash
-cd /path/to/TempleCode
-python3 TempleCode.py
+cd /path/to/Time_Warp_II
+python3 TimeWarpII.py
 # Then open a .tc file from the File menu
 ```
 

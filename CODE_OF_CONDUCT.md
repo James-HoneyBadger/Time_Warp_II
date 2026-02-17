@@ -3,7 +3,7 @@
 ## Our Pledge
 
 In the interest of fostering an open and welcoming environment, we as
-contributors and maintainers pledge to make participation in TempleCode IDE a
+contributors and maintainers pledge to make participation in Time Warp II a
 harassment-free experience for everyone, regardless of age, body size, disability, ethnicity,
 sex characteristics, gender identity and expression, level of experience,
 education, socio-economic status, nationality, personal appearance, race, religion,
@@ -58,7 +58,7 @@ representative at an online or offline event.
 
 ## Educational Context
 
-TempleCode IDE is designed as an educational tool for students learning
+Time Warp II is designed as an educational tool for students learning
 programming. We place special emphasis on:
 
 • Creating a safe learning environment
@@ -136,5 +136,5 @@ For questions or concerns about this Code of Conduct, please contact:
 James Temple  
 Honey Badger Universe  
 Email: james@honey-badger.org  
-Project: TempleCode IDE
-GitHub: https://github.com/James-HoneyBadger/TempleCode
+Project: Time Warp II
+GitHub: https://github.com/James-HoneyBadger/Time_Warp_II

@@ -1,6 +1,6 @@
-# TempleCode IDE - Complete Documentation Suite
+# Time Warp II - Complete Documentation Suite
 
-Welcome to the TempleCode IDE comprehensive documentation. This is your complete guide to mastering the TempleCode language IDE.
+Welcome to the Time Warp II comprehensive documentation. Time Warp II is a special version of Time Warp Classic with various enhancements, designed specifically for the TempleCode language.
 
 ## 📚 Documentation Categories
 
@@ -16,7 +16,7 @@ Welcome to the TempleCode IDE comprehensive documentation. This is your complete
 
 ### Developer Documentation
 - **[TECHNICAL_REFERENCE.md](dev/TECHNICAL_REFERENCE.md)** - Architecture and implementation details
-- **[API_REFERENCE.md](dev/API_REFERENCE.md)** - Python API for extending TempleCode
+- **[API_REFERENCE.md](dev/API_REFERENCE.md)** - Python API for extending Time Warp II
 - **[LANGUAGE_IMPLEMENTATIONS.md](dev/LANGUAGE_IMPLEMENTATIONS.md)** - How each language is implemented
 
 ### Language Guide
@@ -161,14 +161,14 @@ docs/
 
 ## 📞 Support Resources
 
-- **Official Repository:** https://github.com/James-HoneyBadger/TempleCode
+- **Official Repository:** https://github.com/James-HoneyBadger/Time_Warp_II
 - **Issue Tracker:** Report bugs and feature requests
 - **Discussions:** Community Q&A and knowledge sharing
 - **Code Examples:** [../examples/](../examples/) directory
 
 ## 📝 License & Attribution
 
-TempleCode IDE - TempleCode Language IDE  
+Time Warp II - TempleCode Language IDE  
 Copyright © 2025 Honey Badger Universe
 
 See [../License.md](../License.md) for full license information.

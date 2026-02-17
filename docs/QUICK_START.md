@@ -1,12 +1,12 @@
 # Quick Start Guide - 5 Minute Setup
 
-Get TempleCode IDE running and write your first program in 5 minutes!
+Get Time Warp II running and write your first program in 5 minutes!
 
 ## ⚡ Super Quick Start (90 Seconds)
 
 ### Step 1: Install (30 seconds)
 ```bash
-cd /path/to/TempleCode
+cd /path/to/Time_Warp_II
 python3 run.py
 ```
 That's it! The script handles everything automatically.
@@ -61,7 +61,7 @@ All scripts will:
 ### First Program - Hello World in TempleCode
 
 ```basic
-PRINT "Welcome to TempleCode IDE!"
+PRINT "Welcome to Time Warp II!"
 PRINT "Today is:"; DATE$
 PRINT "Let's do math: 5 + 3 ="; 5 + 3
 END
