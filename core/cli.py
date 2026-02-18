@@ -25,10 +25,15 @@ Copyright © 2025-2026 Honey Badger Universe. All rights reserved.
 """
 
 import argparse
+import re
 import sys
 import os
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.interpreter import TempleCodeInterpreter
 
 # ---------------------------------------------------------------------------
 #  Version — kept in sync with pyproject.toml
@@ -136,7 +141,80 @@ def cmd_run(args):
         sys.exit(1)
 
 
-def cmd_repl(args):
+def _repl_clear(interp: "TempleCodeInterpreter",
+                numbered_lines: dict, **_: object) -> None:
+    """REPL CLEAR command."""
+    interp.reset()
+    numbered_lines.clear()
+    print("Cleared.")
+
+
+def _repl_list(numbered_lines: dict, **_: object) -> None:
+    """REPL LIST command."""
+    if not numbered_lines:
+        print("(no program lines)")
+    else:
+        for num in sorted(numbered_lines):
+            print(f"{num} {numbered_lines[num]}")
+
+
+def _repl_run(interp: "TempleCodeInterpreter",
+              numbered_lines: dict, **_: object) -> None:
+    """REPL RUN command."""
+    if not numbered_lines:
+        print("(no program lines to run)")
+        return
+    program = "\n".join(
+        f"{num} {cmd}" for num, cmd in sorted(numbered_lines.items())
+    )
+    interp.reset()
+    interp.run_program(program)
+
+
+def _repl_debug_on(interp: "TempleCodeInterpreter", **_: object) -> None:
+    """REPL DEBUG ON command."""
+    interp.set_debug_mode(True)
+    print("Debug mode ON")
+
+
+def _repl_debug_off(interp: "TempleCodeInterpreter", **_: object) -> None:
+    """REPL DEBUG OFF command."""
+    interp.set_debug_mode(False)
+    print("Debug mode OFF")
+
+
+def _repl_vars(interp: "TempleCodeInterpreter", **_: object) -> None:
+    """REPL VARS command."""
+    if not interp.variables:
+        print("(no variables)")
+    else:
+        for k, v in sorted(interp.variables.items()):
+            print(f"  {k} = {v!r}")
+
+
+def _repl_store_or_exec(interp: "TempleCodeInterpreter",
+                        numbered_lines: dict,
+                        stripped: str) -> None:
+    """Handle numbered-line storage or immediate execution."""
+    m = re.match(r"^(\d+)\s+(.*)", stripped)
+    if m:
+        num = int(m.group(1))
+        cmd = m.group(2).strip()
+        if not cmd:
+            numbered_lines.pop(num, None)
+            print(f"  Line {num} deleted")
+        else:
+            numbered_lines[num] = cmd
+            print(f"  {num} {cmd}")
+        return
+
+    try:
+        interp.execute_line(stripped)
+    except Exception as exc:
+        print(f"Error: {exc}")
+
+
+def cmd_repl(args: argparse.Namespace) -> None:
     """Start an interactive TempleCode REPL."""
     interp = _make_interpreter(debug=args.debug)
     interp.running = True
@@ -148,6 +226,16 @@ def cmd_repl(args):
     print("Enter 'CLEAR' to reset.\n")
 
     numbered_lines: dict[int, str] = {}
+
+    dispatch = {
+        "CLEAR": lambda: _repl_clear(interp, numbered_lines),
+        "LIST": lambda: _repl_list(numbered_lines),
+        "RUN": lambda: _repl_run(interp, numbered_lines),
+        "DEBUG ON": lambda: _repl_debug_on(interp),
+        "DEBUG OFF": lambda: _repl_debug_off(interp),
+        "VARS": lambda: _repl_vars(interp),
+        "HELP": _repl_help,
+    }
 
     try:
         while True:
@@ -165,72 +253,12 @@ def cmd_repl(args):
             if upper in ("QUIT", "EXIT", "BYE"):
                 break
 
-            if upper == "CLEAR":
-                interp.reset()
-                numbered_lines.clear()
-                print("Cleared.")
+            handler = dispatch.get(upper)
+            if handler is not None:
+                handler()
                 continue
 
-            if upper == "LIST":
-                if not numbered_lines:
-                    print("(no program lines)")
-                else:
-                    for num in sorted(numbered_lines):
-                        print(f"{num} {numbered_lines[num]}")
-                continue
-
-            if upper == "RUN":
-                if not numbered_lines:
-                    print("(no program lines to run)")
-                    continue
-                program = "\n".join(
-                    f"{num} {cmd}" for num, cmd in sorted(numbered_lines.items())
-                )
-                interp.reset()
-                interp.run_program(program)
-                continue
-
-            if upper == "DEBUG ON":
-                interp.set_debug_mode(True)
-                print("Debug mode ON")
-                continue
-            if upper == "DEBUG OFF":
-                interp.set_debug_mode(False)
-                print("Debug mode OFF")
-                continue
-
-            if upper == "VARS":
-                if not interp.variables:
-                    print("(no variables)")
-                else:
-                    for k, v in sorted(interp.variables.items()):
-                        print(f"  {k} = {v!r}")
-                continue
-
-            if upper == "HELP":
-                _repl_help()
-                continue
-
-            # Check for numbered line → store in program buffer
-            import re  # noqa: C0415
-            m = re.match(r"^(\d+)\s+(.*)", stripped)
-            if m:
-                num = int(m.group(1))
-                cmd = m.group(2).strip()
-                if not cmd:
-                    # Delete line
-                    numbered_lines.pop(num, None)
-                    print(f"  Line {num} deleted")
-                else:
-                    numbered_lines[num] = cmd
-                    print(f"  {num} {cmd}")
-                continue
-
-            # Immediate execution
-            try:
-                interp.execute_line(stripped)
-            except Exception as exc:
-                print(f"Error: {exc}")
+            _repl_store_or_exec(interp, numbered_lines, stripped)
 
     except KeyboardInterrupt:
         print("\nInterrupted.")
@@ -326,62 +354,53 @@ def cmd_format(args):
         print(formatted)
 
 
-def cmd_check(args):
-    """Syntax-check a .tc file without executing."""
-    filepath = _resolve_file(args.file)
-    source = filepath.read_text(encoding="utf-8")
+# ---------------------------------------------------------------------------
+#  Block-balance checker used by cmd_check
+# ---------------------------------------------------------------------------
 
+_BLOCK_RULES = [
+    # (opener_pattern, closer_pattern, label, closer_label)
+    (r'^FOR\b',       r'^NEXT\b',                    "FOR",          "NEXT"),
+    (r'^WHILE\b',     r'^WEND$',                     "WHILE",        "WEND"),
+    (r'^SELECT\b',    r'^END\s+SELECT$',              "SELECT",       "END SELECT"),
+    (r'^(?:SUB|FUNCTION)\b', r'^END\s+(?:SUB|FUNCTION)$', "SUB/FUNCTION", "END SUB/FUNCTION"),
+]
+
+
+def _check_block_balance(lines: list[str]) -> list[str]:
+    """Return a list of block-balance issue strings."""
     issues: list[str] = []
-    lines = source.strip().split("\n")
-
-    # Track balanced constructs
-    for_count = 0
+    counts: dict[str, int] = {label: 0 for _, _, label, _ in _BLOCK_RULES}
+    # IF and TRY have special logic, tracked separately
     if_count = 0
-    while_count = 0
-    sub_count = 0
     try_count = 0
-    select_count = 0
 
-    import re  # noqa: C0415
     for i, raw in enumerate(lines, 1):
         _, cmd = _parse_line_number(raw)
         upper = cmd.upper().strip()
 
-        if re.match(r'^FOR\b', upper):
-            for_count += 1
-        elif re.match(r'^NEXT\b', upper):
-            for_count -= 1
-            if for_count < 0:
-                issues.append(f"  Line {i}: NEXT without matching FOR")
-                for_count = 0
+        # Standard opener / closer rules
+        for opener_pat, closer_pat, label, closer_label in _BLOCK_RULES:
+            if re.match(opener_pat, upper):
+                counts[label] += 1
+            elif re.match(closer_pat, upper):
+                counts[label] -= 1
+                if counts[label] < 0:
+                    issues.append(f"  Line {i}: {closer_label} without matching {label}")
+                    counts[label] = 0
 
+        # IF: only multi-line (THEN with nothing after it) needs ENDIF
         if re.match(r'^IF\b', upper) and "THEN" in upper:
-            # Single-line IF/THEN doesn't need ENDIF
             rest_after_then = upper.split("THEN", 1)[1].strip()
             if not rest_after_then:
                 if_count += 1
-        elif upper == "ENDIF" or upper == "END IF":
+        elif upper in ("ENDIF", "END IF"):
             if_count -= 1
             if if_count < 0:
                 issues.append(f"  Line {i}: ENDIF without matching IF")
                 if_count = 0
 
-        if re.match(r'^WHILE\b', upper):
-            while_count += 1
-        elif upper == "WEND":
-            while_count -= 1
-            if while_count < 0:
-                issues.append(f"  Line {i}: WEND without matching WHILE")
-                while_count = 0
-
-        if re.match(r'^SUB\b', upper) or re.match(r'^FUNCTION\b', upper):
-            sub_count += 1
-        elif upper == "END SUB" or upper == "END FUNCTION":
-            sub_count -= 1
-            if sub_count < 0:
-                issues.append(f"  Line {i}: END SUB/FUNCTION without matching SUB/FUNCTION")
-                sub_count = 0
-
+        # TRY / END TRY
         if upper == "TRY":
             try_count += 1
         elif upper == "END TRY":
@@ -390,27 +409,25 @@ def cmd_check(args):
                 issues.append(f"  Line {i}: END TRY without matching TRY")
                 try_count = 0
 
-        if re.match(r'^SELECT\b', upper):
-            select_count += 1
-        elif upper == "END SELECT":
-            select_count -= 1
-            if select_count < 0:
-                issues.append(f"  Line {i}: END SELECT without matching SELECT")
-                select_count = 0
-
     # Report unclosed blocks
-    if for_count > 0:
-        issues.append(f"  {for_count} unclosed FOR loop(s) (missing NEXT)")
+    for _, _, label, closer_label in _BLOCK_RULES:
+        if counts[label] > 0:
+            issues.append(f"  {counts[label]} unclosed {label} block(s) (missing {closer_label})")
     if if_count > 0:
         issues.append(f"  {if_count} unclosed IF block(s) (missing ENDIF)")
-    if while_count > 0:
-        issues.append(f"  {while_count} unclosed WHILE loop(s) (missing WEND)")
-    if sub_count > 0:
-        issues.append(f"  {sub_count} unclosed SUB/FUNCTION(s) (missing END SUB/FUNCTION)")
     if try_count > 0:
         issues.append(f"  {try_count} unclosed TRY block(s) (missing END TRY)")
-    if select_count > 0:
-        issues.append(f"  {select_count} unclosed SELECT block(s) (missing END SELECT)")
+
+    return issues
+
+
+def cmd_check(args: argparse.Namespace) -> None:
+    """Syntax-check a .tc file without executing."""
+    filepath = _resolve_file(args.file)
+    source = filepath.read_text(encoding="utf-8")
+    lines = source.strip().split("\n")
+
+    issues = _check_block_balance(lines)
 
     print(f"Checking {filepath.name}  ({len(lines)} lines)")
     if issues:
@@ -422,9 +439,8 @@ def cmd_check(args):
         print("✅ No issues found.")
 
 
-def _parse_line_number(line: str):
+def _parse_line_number(line: str) -> tuple:
     """Split optional leading line number from command text."""
-    import re  # noqa: C0415
     line = line.strip()
     m = re.match(r"^(\d+)\s+(.*)", line)
     if m:
@@ -515,7 +531,7 @@ def main(argv=None):
         sys.path.insert(0, str(project_root))
         os.chdir(project_root)
         import subprocess  # noqa: C0415
-        subprocess.run([sys.executable, str(project_root / "TimeWarpII.py")])
+        subprocess.run([sys.executable, str(project_root / "TimeWarpII.py")], check=False)
     else:
         parser.print_help()
         sys.exit(0)

@@ -30,7 +30,8 @@ examples/
     ├── flower.tc                  # Flower garden with Logo procedures
     ├── kaleidoscope.tc            # Geometric kaleidoscope patterns
     ├── snowflake.tc               # Koch snowflake fractal
-    └── clock.tc                   # Analogue clock face drawing
+    ├── clock.tc                   # Analogue clock face drawing
+    └── feature_showcase.tc        # Comprehensive feature showcase (795 lines)
 ```
 
 ---
@@ -261,6 +262,54 @@ A detailed analogue clock face with hour markers, minute ticks, and three hands 
 
 ---
 
+### Comprehensive Showcase
+
+#### 22. feature_showcase.tc — Feature Showcase (795 lines)
+
+The largest example program — a fully interactive **Personal Finance Tracker**
+that demonstrates the widest possible spectrum of TempleCode features across
+all three heritages and every modern extension.
+
+**Features demonstrated:**
+
+| Category | Features Used |
+|----------|---------------|
+| **BASIC** | `LET`, `PRINT`, `INPUT`, `IF/ELSEIF/ELSE/ENDIF`, `FOR/NEXT`, `WHILE/WEND`, `DO/LOOP`, `SELECT CASE`, `DIM`, `DATA/READ`, `SWAP`, `INCR/DECR`, `RANDOMIZE TIMER`, `GOSUB/RETURN`, `RESTORE` |
+| **PILOT** | `T:`, `A:`, `M:`, `Y:`, `N:`, `C:`, `J:`, `P:`, `E:`, `*labels` |
+| **Logo** | `FORWARD`, `RIGHT`, `LEFT`, `PENUP/PENDOWN`, `SETCOLOR`, `SETPENSIZE`, `SETXY`, `CIRCLE`, `RECT`, `LABEL`, `HIDETURTLE`, `REPEAT`, `TO/END` procedures |
+| **Constants & Types** | `CONST`, `ENUM`, `STRUCT`, `TYPEOF`, `ISNUMBER`, `ISSTRING`, `TOSTR`, `TONUM`, `HEX`, `BIN`, `OCT`, `PI`, `E`, `TAU` |
+| **Data Structures** | `LIST`, `PUSH`, `FOREACH/IN`, indexing; `DICT`, `SET`, `GET`, `HASKEY`, `KEYS` |
+| **Functions** | `FUNCTION`, `SUB`, `LAMBDA`, `MAP`, `FILTER`, `REDUCE` |
+| **Error Handling** | `TRY/CATCH`, `ASSERT`, `THROW` |
+| **String Functions** | `LEN`, `LEFT$`, `MID$`, `UCASE$`, `LCASE$`, `TRIM$`, `REPLACE$`, `REPEAT$`, `CHR$`, `ASC`, `SPLIT`, `JOIN`, `FORMAT$`, `CONTAINS` |
+| **Math Functions** | `SQR`, `ABS`, `ROUND`, `CLAMP`, `LERP`, `LOG2`, `CEIL`, `FLOOR`, `INT`, `RND` |
+| **JSON** | `JSON STRINGIFY`, `JSON PARSE`, roundtrip verification |
+| **Regex** | `REGEX MATCH`, fallback on invalid patterns |
+| **Formatted Output** | `PRINTF` with positional placeholders |
+
+**Program sections:**
+1. Constants, enums & configuration
+2. Data structures (structs, lists, dicts)
+3. Helper functions & lambdas
+4. Subroutines for formatting
+5. Sample data via `DATA/READ`
+6. Transaction processing with category totals
+7. Formatted ledger reporting
+8. Statistical analysis with `MAP`/`FILTER`/`REDUCE`
+9. Logo bar chart visualisation
+10. Interactive PILOT menu with `SELECT CASE` dispatch
+11. Add-transaction form with validation (`TRY/CATCH/ASSERT`)
+12. Regex-powered transaction search
+13. JSON export & roundtrip parsing
+14. Type system & function demonstration
+15. PILOT interactive finance quiz (`M:`, `Y:`, `N:`)
+16. Logo decorative drawing procedures
+
+**What you'll see:** An interactive menu-driven application with text reports,
+bar charts on the canvas, a quiz, and data export — all in one program.
+
+---
+
 ## How to Run Examples
 
 ### From the IDE
@@ -323,6 +372,9 @@ python3 TimeWarpII.py
 19. **mandelbrot.tc** — Nested repeat patterns
 20. **snowflake.tc** — Fractal geometry
 21. **clock.tc** — Precise positioning and angles
+
+### Everything Together
+22. **feature_showcase.tc** — All features in one comprehensive program
 
 ---
 

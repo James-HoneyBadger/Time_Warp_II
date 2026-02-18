@@ -99,6 +99,9 @@ pip install -r requirements.txt
 **Problem:** Match not working
 - Solution: Check that `A:` was used before `M:` to accept input
 
+**Problem:** Type error when using `ANSWER` in arithmetic (e.g., `unsupported operand type(s) for -: 'str' and 'int'`)
+- This was a known issue and has been fixed. PILOT `A:` now auto-converts numeric input to numbers, matching the BASIC `INPUT` behaviour. If you still see this in older versions, wrap the value with `TONUM(ANSWER)` as a workaround.
+
 ### Logo-Style Commands
 
 **Problem:** Turtle not drawing

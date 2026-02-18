@@ -1,0 +1,23 @@
+REM TempleCode Quiz - PILOT-style interaction
+T:=== TempleCode Geography Quiz ===
+T:
+T:Question 1: What is the capital of France?
+A:
+M:Paris
+Y:T:Correct! Paris is the capital of France.
+N:T:Sorry, the answer is Paris.
+T:
+T:Question 2: What ocean is the largest?
+A:
+M:Pacific
+Y:T:Correct! The Pacific Ocean is the largest.
+N:T:Sorry, it's the Pacific Ocean.
+T:
+T:Question 3: What continent is Egypt on?
+A:
+M:Africa
+Y:T:Correct! Egypt is in Africa.
+N:T:Sorry, Egypt is in Africa.
+T:
+T:Thanks for playing the quiz!
+E:

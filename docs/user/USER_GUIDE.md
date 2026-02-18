@@ -22,6 +22,7 @@ The complete guide to using the Time Warp II IDE for TempleCode programming.
 16. [Keyboard Shortcuts](#keyboard-shortcuts)
 17. [Settings & Persistence](#settings--persistence)
 18. [Example Programs](#example-programs)
+19. [Command-Line Interface (CLI)](#command-line-interface-cli)
 
 ---
 
@@ -520,6 +521,66 @@ Load built-in examples from **Program → Load Example**. The menu is organised 
 - **Kaleidoscope** — symmetrical patterns
 - **Snowflake Fractal** — recursive Koch snowflake
 - **Clock Face** — analogue clock drawing
+
+---
+
+## Command-Line Interface (CLI)
+
+Time Warp II includes a full CLI for running programs, checking syntax, and formatting code without the GUI.
+
+### Running a Program
+
+```bash
+templecode run hello.tc
+templecode run fibonacci.tc --debug --time
+templecode run myprogram.tc --profile
+templecode run drawing.tc --export-canvas output.png
+```
+
+| Flag | Description |
+|------|-------------|
+| `--debug` / `-d` | Enable debug tracing |
+| `--time` / `-t` | Print elapsed execution time |
+| `--profile` / `-p` | Enable per-line profiler |
+| `--export-canvas` / `-e` | Export turtle canvas to PNG |
+
+### Interactive REPL
+
+```bash
+templecode repl
+```
+
+The REPL supports:
+- **Immediate execution** — type any TempleCode command and it runs instantly
+- **Numbered lines** — store program lines (e.g., `10 PRINT "Hello"`)
+- **RUN** — execute all stored numbered lines
+- **LIST** — show the stored program
+- **CLEAR** — reset interpreter and stored lines
+- **VARS** — display all current variables
+- **DEBUG ON / OFF** — toggle debug tracing
+- **QUIT** / **EXIT** — leave the REPL
+
+### Syntax Checking
+
+```bash
+templecode check myprogram.tc
+```
+
+Checks for unbalanced blocks (unclosed `FOR`/`NEXT`, `IF`/`ENDIF`, `WHILE`/`WEND`, `SUB`/`END SUB`, `TRY`/`END TRY`, `SELECT`/`END SELECT`).
+
+### Code Formatting
+
+```bash
+templecode format myprogram.tc           # print formatted output
+templecode format myprogram.tc --inplace  # write back to file
+templecode format myprogram.tc --check    # exit 1 if unformatted
+```
+
+### Launching the GUI from CLI
+
+```bash
+templecode gui
+```
 
 ---
 

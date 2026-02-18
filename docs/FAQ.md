@@ -118,6 +118,22 @@ Check:
 
 Yes! TempleCode is a fusion of all three. You can freely mix BASIC commands (PRINT, LET, IF), PILOT commands (T:, A:, M:), and Logo turtle graphics (FORWARD, RIGHT) in a single program.
 
+### Does PILOT `A:` input work with arithmetic?
+
+Yes. When the user enters a number via `A:`, it is automatically converted to a numeric type (integer or float). You can use `ANSWER` directly in arithmetic expressions without needing `TONUM()`:
+
+```
+A:
+C:SECONDS = ANSWER
+LET X = ANSWER * 2
+```
+
+This matches the behaviour of the BASIC `INPUT` command.
+
+### Can I run programs without the GUI?
+
+Yes! Time Warp II includes a full command-line interface. Use `templecode run <file>` to execute programs, `templecode repl` for an interactive session, `templecode check <file>` to syntax-check, and `templecode format <file>` to auto-indent. See the [User Guide](user/USER_GUIDE.md#command-line-interface-cli) for details.
+
 ### How big can programs be?
 
 You can write very large programs, but performance depends on:

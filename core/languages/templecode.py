@@ -1412,21 +1412,24 @@ class TempleCodeExecutor:
     # --- BASIC INPUT ---
 
     def _basic_input(self, command):
-        """INPUT ["prompt";] var"""
+        """INPUT ["prompt"[;,]] var"""
         text = re.sub(r'^INPUT\s+', '', command, flags=re.IGNORECASE).strip()
 
         prompt = "? "
         var_name = text
 
-        # INPUT "prompt"; VAR
-        m = re.match(r'"([^"]*)"[;,]\s*(\w+)', text)
+        # INPUT "prompt"; VAR   or   INPUT "prompt", VAR
+        m = re.match(r'"([^"]*)"[;,]\s*(\w+\$?)', text)
         if m:
             prompt = m.group(1) + " "
             var_name = m.group(2)
-        elif re.match(r'\w+$', text):
-            var_name = text
         else:
-            var_name = text
+            # INPUT "prompt" VAR   (no separator — common user shorthand)
+            m = re.match(r'"([^"]*)"\s+(\w+\$?)', text)
+            if m:
+                prompt = m.group(1) + " "
+                var_name = m.group(2)
+            # else: INPUT VAR (no prompt) — var_name is already set to text
 
         var_name = var_name.strip().upper()
         value = self.interpreter.get_input(prompt)

@@ -205,7 +205,7 @@ PILOT commands use a single letter followed by a colon. They are ideal for inter
 | Command | Description |
 |---------|-------------|
 | `T:text` | Type / print text (with `$VAR` interpolation) |
-| `A:` / `A:prompt` | Accept user input |
+| `A:` / `A:prompt` | Accept user input (numeric strings are auto-converted to numbers) |
 | `M:pattern` | Match input against pattern(s) |
 | `Y:command` | Execute if last match succeeded |
 | `N:command` | Execute if last match failed |
@@ -220,6 +220,18 @@ PILOT commands use a single letter followed by a colon. They are ideal for inter
 | `D:ARR(n)` | Dimension an array |
 | `P:ms` | Pause for milliseconds |
 | `X:command` | Execute BASIC or Logo command |
+
+### Accept (`A:`) — Automatic Numeric Conversion
+
+When the user enters a value via `A:`, the input is automatically converted to a number if it looks numeric. This means you can use `ANSWER` directly in arithmetic without calling `TONUM()`:
+
+```pilot
+T:How many seconds to count down?
+A:
+C:SECONDS = ANSWER
+```
+
+If the input is `"10"`, `ANSWER` will hold the integer `10`, not the string `"10"`. Non-numeric text remains a string. This matches the behaviour of the BASIC `INPUT` command.
 
 ### Labels
 ```pilot
@@ -965,7 +977,7 @@ T:Welcome to the Circle Calculator!
 A:Enter radius
 
 TRY
-    LET R = TONUM(ANSWER)
+    LET R = ANSWER
     LET AREA = CircleArea(R)
     PRINTF "Area of circle with radius {0}: {1}", R, ROUND(AREA, 2)
 

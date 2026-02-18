@@ -1,0 +1,9 @@
+10 REM Colorful Spiral - Logo turtle graphics in TempleCode
+20 PRINT "Drawing a spiral..."
+SETCOLOR red
+30 FOR I = 1 TO 36
+40 FORWARD I * 3
+50 RIGHT 91
+60 NEXT I
+70 PRINT "Spiral complete!"
+80 END

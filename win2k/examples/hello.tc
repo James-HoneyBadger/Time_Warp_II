@@ -1,0 +1,20 @@
+10 REM TempleCode Hello World Demo
+20 REM Demonstrates BASIC, PILOT, and Logo working together
+30 PRINT "============================="
+40 PRINT "  Welcome to TempleCode!"
+50 PRINT "============================="
+60 PRINT ""
+T:This line uses PILOT-style output.
+T:TempleCode blends BASIC, PILOT, and Logo.
+70 PRINT ""
+80 PRINT "Now let's draw a square with Logo commands:"
+FORWARD 80
+RIGHT 90
+FORWARD 80
+RIGHT 90
+FORWARD 80
+RIGHT 90
+FORWARD 80
+90 PRINT ""
+100 PRINT "Done! Enjoy TempleCode."
+110 END

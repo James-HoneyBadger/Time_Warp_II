@@ -1,0 +1,795 @@
+REM ═══════════════════════════════════════════════════════════
+REM  TempleCode Feature Showcase — Personal Finance Tracker
+REM ═══════════════════════════════════════════════════════════
+REM
+REM  A comprehensive program demonstrating a wide spectrum of
+REM  TempleCode features across all three heritages (BASIC,
+REM  PILOT, Logo) plus modern extensions.
+REM
+REM  Features demonstrated:
+REM    BASIC  — LET, PRINT, INPUT, IF/ELSEIF/ELSE/ENDIF,
+REM             FOR/NEXT, WHILE/WEND, DO/LOOP, SELECT CASE,
+REM             DIM, DATA/READ, SWAP, INCR, DECR, GOSUB/RETURN,
+REM             RANDOMIZE TIMER, TAB, SPC
+REM    PILOT  — T:, A:, M:, Y:, N:, C:, J:, P:, E:, labels
+REM    Logo   — FORWARD, RIGHT, LEFT, PENUP, PENDOWN,
+REM             SETCOLOR, SETPENSIZE, CIRCLE, RECT, LABEL,
+REM             HIDETURTLE, SETXY, REPEAT, TO/END procedures
+REM    Modern — CONST, ENUM, STRUCT, LIST, DICT, FUNCTION,
+REM             SUB, LAMBDA, MAP, FILTER, REDUCE, FOREACH,
+REM             TRY/CATCH, THROW, ASSERT, TYPEOF, PRINTF,
+REM             JSON PARSE/STRINGIFY, REGEX MATCH/REPLACE,
+REM             SPLIT, JOIN, string functions, math functions,
+REM             DATE$, TIME$, TIMER, FORMAT$
+REM
+REM  Copyright © 2025-2026 Honey Badger Universe
+REM ═══════════════════════════════════════════════════════════
+
+REM ─────────────────────────────────────────────────
+REM  Section 1: Constants, Enums & Configuration
+REM ─────────────────────────────────────────────────
+
+CONST APP_NAME = "TempleCode Finance Tracker"
+CONST VERSION = "1.0"
+CONST MAX_TRANSACTIONS = 100
+CONST CURRENCY = "$"
+CONST BAR_WIDTH = 200
+CONST BAR_HEIGHT = 20
+
+ENUM CATEGORY = FOOD, TRANSPORT, HOUSING, UTILITIES, ENTERTAINMENT, SAVINGS, INCOME
+
+REM ─────────────────────────────────────────────────
+REM  Section 2: Data Structures
+REM ─────────────────────────────────────────────────
+
+STRUCT TRANSACTION = DESCRIPTION, AMOUNT, CATEGORY, DATE
+
+REM Parallel lists to hold transaction data
+LIST TX_DESC
+LIST TX_AMOUNT
+LIST TX_CATEGORY
+LIST TX_DATE
+
+REM Category name lookup
+DICT CATEGORY_NAMES
+SET CATEGORY_NAMES, "0", "Food"
+SET CATEGORY_NAMES, "1", "Transport"
+SET CATEGORY_NAMES, "2", "Housing"
+SET CATEGORY_NAMES, "3", "Utilities"
+SET CATEGORY_NAMES, "4", "Entertainment"
+SET CATEGORY_NAMES, "5", "Savings"
+SET CATEGORY_NAMES, "6", "Income"
+
+REM Summary stats dictionary
+DICT SUMMARY
+
+REM ─────────────────────────────────────────────────
+REM  Section 3: Helper Functions & Lambdas
+REM ─────────────────────────────────────────────────
+
+FUNCTION ABSOLUTE(X)
+  IF X < 0 THEN RETURN -X
+  RETURN X
+END FUNCTION
+
+FUNCTION PERCENTAGE(PART, WHOLE)
+  IF WHOLE = 0 THEN RETURN 0
+  RETURN ROUND(PART / WHOLE * 100, 1)
+END FUNCTION
+
+FUNCTION PAD_RIGHT(S, WIDTH)
+  LET RESULT = TOSTR(S)
+  WHILE LEN(RESULT) < WIDTH
+    LET RESULT = RESULT + " "
+  WEND
+  RETURN RESULT
+END FUNCTION
+
+FUNCTION PAD_LEFT(S, WIDTH)
+  LET RESULT = TOSTR(S)
+  WHILE LEN(RESULT) < WIDTH
+    LET RESULT = " " + RESULT
+  WEND
+  RETURN RESULT
+END FUNCTION
+
+FUNCTION REPEAT_CHAR(CH, N)
+  LET RESULT = ""
+  FOR I = 1 TO N
+    LET RESULT = RESULT + CH
+  NEXT I
+  RETURN RESULT
+END FUNCTION
+
+FUNCTION FORMAT_CURRENCY(AMOUNT)
+  IF AMOUNT >= 0 THEN
+    RETURN CURRENCY + FORMAT$(AMOUNT, ".2f")
+  ELSE
+    RETURN "-" + CURRENCY + FORMAT$(ABSOLUTE(AMOUNT), ".2f")
+  ENDIF
+END FUNCTION
+
+FUNCTION CATEGORY_NAME(CAT_ID)
+  LET KEY = TOSTR(CAT_ID)
+  IF HASKEY(CATEGORY_NAMES, KEY) THEN
+    GET CATEGORY_NAMES, KEY, NAME
+    RETURN NAME
+  ENDIF
+  RETURN "Unknown"
+END FUNCTION
+
+LAMBDA IS_EXPENSE(AMT) = AMT < 0
+LAMBDA IS_INCOME(AMT) = AMT > 0
+LAMBDA NEGATE(X) = -X
+
+REM ─────────────────────────────────────────────────
+REM  Section 4: Subroutines
+REM ─────────────────────────────────────────────────
+
+SUB PRINT_HEADER()
+  PRINT ""
+  PRINT REPEAT_CHAR("═", 55)
+  PRINTF " {APP_NAME} v{VERSION}"
+  PRINT REPEAT_CHAR("═", 55)
+  PRINTF " Date: {0}  Time: {1}", DATE$, TIME$
+  PRINT REPEAT_CHAR("─", 55)
+  PRINT ""
+END SUB
+
+SUB PRINT_SEPARATOR()
+  PRINT REPEAT_CHAR("─", 55)
+END SUB
+
+SUB PRINT_DOUBLE_SEPARATOR()
+  PRINT REPEAT_CHAR("═", 55)
+END SUB
+
+REM ─────────────────────────────────────────────────
+REM  Section 5: Load Sample Data via DATA / READ
+REM ─────────────────────────────────────────────────
+
+DATA "Grocery Store",       -85.50,  0, "2026-02-10"
+DATA "Bus Pass",            -45.00,  1, "2026-02-10"
+DATA "Rent Payment",       -950.00,  2, "2026-02-01"
+DATA "Electric Bill",       -72.30,  3, "2026-02-05"
+DATA "Movie Tickets",       -28.00,  4, "2026-02-08"
+DATA "Savings Transfer",   -200.00,  5, "2026-02-01"
+DATA "Salary Deposit",     2800.00,  6, "2026-02-01"
+DATA "Freelance Payment",   450.00,  6, "2026-02-07"
+DATA "Restaurant Dinner",   -42.75,  0, "2026-02-12"
+DATA "Gas Station",          -38.20,  1, "2026-02-13"
+DATA "Internet Service",    -59.99,  3, "2026-02-05"
+DATA "Concert Ticket",      -65.00,  4, "2026-02-14"
+DATA "Coffee Shop",         -12.40,  0, "2026-02-15"
+DATA "Uber Ride",            -18.50,  1, "2026-02-15"
+DATA "Bonus",               500.00,  6, "2026-02-15"
+
+SUB LOAD_SAMPLE_DATA()
+  FOR I = 1 TO 15
+    READ DESC$
+    READ AMT
+    READ CAT
+    READ DT$
+    PUSH TX_DESC, DESC$
+    PUSH TX_AMOUNT, AMT
+    PUSH TX_CATEGORY, CAT
+    PUSH TX_DATE, DT$
+  NEXT I
+  PRINTF "  Loaded {0} sample transactions.", LENGTH(TX_DESC)
+END SUB
+
+REM ─────────────────────────────────────────────────
+REM  Section 6: Transaction Processing
+REM ─────────────────────────────────────────────────
+
+SUB CALCULATE_SUMMARY()
+  LET TOTAL_IN = 0
+  LET TOTAL_OUT = 0
+  LET TX_COUNT = LENGTH(TX_AMOUNT)
+
+  REM Initialize category totals using DIM
+  DIM CAT_TOTALS(7)
+  FOR I = 0 TO 6
+    LET CAT_TOTALS(I) = 0
+  NEXT I
+
+  REM Process each transaction
+  FOREACH AMT IN TX_AMOUNT
+    IF AMT > 0 THEN
+      LET TOTAL_IN = TOTAL_IN + AMT
+    ELSE
+      LET TOTAL_OUT = TOTAL_OUT + ABSOLUTE(AMT)
+    ENDIF
+  NEXT AMT
+
+  REM Calculate category totals
+  LET IDX = 0
+  FOREACH CAT IN TX_CATEGORY
+    LET A = TX_AMOUNT[IDX]
+    LET CAT_TOTALS(CAT) = CAT_TOTALS(CAT) + ABSOLUTE(A)
+    INCR IDX
+  NEXT CAT
+
+  REM Store summary in dict
+  SET SUMMARY.totalIncome = TOSTR(TOTAL_IN)
+  SET SUMMARY.totalExpenses = TOSTR(TOTAL_OUT)
+  SET SUMMARY.netBalance = TOSTR(TOTAL_IN - TOTAL_OUT)
+  SET SUMMARY.transactionCount = TOSTR(TX_COUNT)
+
+  REM Store category totals in dict
+  FOR I = 0 TO 6
+    LET KEY = "cat_" + TOSTR(I)
+    SET SUMMARY, KEY, TOSTR(CAT_TOTALS(I))
+  NEXT I
+END SUB
+
+REM ─────────────────────────────────────────────────
+REM  Section 7: Reporting with BASIC Features
+REM ─────────────────────────────────────────────────
+
+SUB DISPLAY_TRANSACTIONS()
+  PRINT ""
+  PRINT "  TRANSACTION LEDGER"
+  CALL PRINT_SEPARATOR()
+  PRINTF "  {0} {1} {2} {3}", PAD_RIGHT("Date", 12), PAD_RIGHT("Category", 15), PAD_RIGHT("Description", 22), PAD_LEFT("Amount", 10)
+  CALL PRINT_SEPARATOR()
+
+  LET IDX = 0
+  FOREACH DESC IN TX_DESC
+    LET DT = TX_DATE[IDX]
+    LET AMT = TX_AMOUNT[IDX]
+    LET CAT = TX_CATEGORY[IDX]
+    LET CAT_NAME = CATEGORY_NAME(CAT)
+    LET AMT_STR = FORMAT_CURRENCY(AMT)
+
+    PRINTF "  {0} {1} {2} {3}", PAD_RIGHT(DT, 12), PAD_RIGHT(CAT_NAME, 15), PAD_RIGHT(DESC, 22), PAD_LEFT(AMT_STR, 10)
+    INCR IDX
+  NEXT DESC
+
+  CALL PRINT_SEPARATOR()
+  PRINTF "  Total transactions: {0}", LENGTH(TX_DESC)
+  PRINT ""
+END SUB
+
+SUB DISPLAY_SUMMARY()
+  CALL CALCULATE_SUMMARY()
+
+  PRINT ""
+  PRINT "  FINANCIAL SUMMARY"
+  CALL PRINT_DOUBLE_SEPARATOR()
+
+  GET SUMMARY.totalIncome INTO INC_STR
+  GET SUMMARY.totalExpenses INTO EXP_STR
+  GET SUMMARY.netBalance INTO BAL_STR
+  LET INC = TONUM(INC_STR)
+  LET EXP = TONUM(EXP_STR)
+  LET BAL = TONUM(BAL_STR)
+
+  PRINTF "  Total Income:    {0}", FORMAT_CURRENCY(INC)
+  PRINTF "  Total Expenses:  {0}", FORMAT_CURRENCY(EXP)
+  CALL PRINT_SEPARATOR()
+  PRINTF "  Net Balance:     {0}", FORMAT_CURRENCY(BAL)
+  PRINT ""
+
+  REM Savings rate calculation
+  LET SAVINGS_RATE = PERCENTAGE(BAL, INC)
+  PRINTF "  Savings Rate: {0}%", SAVINGS_RATE
+
+  PRINT ""
+  PRINT "  BREAKDOWN BY CATEGORY"
+  CALL PRINT_SEPARATOR()
+
+  FOR I = 0 TO 6
+    LET KEY = "cat_" + TOSTR(I)
+    GET SUMMARY, KEY, CAT_VAL_STR
+    LET CAT_VAL = TONUM(CAT_VAL_STR)
+    IF CAT_VAL > 0 THEN
+      LET PCT = PERCENTAGE(CAT_VAL, INC)
+      LET BAR_LEN = INT(PCT / 2)
+      IF BAR_LEN < 1 THEN LET BAR_LEN = 1
+      LET BAR = REPEAT_CHAR("█", BAR_LEN)
+      PRINTF "  {0}  {1}  {2}%  {3}", PAD_RIGHT(CATEGORY_NAME(I), 15), PAD_LEFT(FORMAT_CURRENCY(CAT_VAL), 10), PAD_LEFT(TOSTR(PCT), 5), BAR
+    ENDIF
+  NEXT I
+  CALL PRINT_SEPARATOR()
+  PRINT ""
+END SUB
+
+REM ─────────────────────────────────────────────────
+REM  Section 8: Statistics with Functional Features
+REM ─────────────────────────────────────────────────
+
+SUB DISPLAY_STATISTICS()
+  PRINT ""
+  PRINT "  STATISTICAL ANALYSIS"
+  CALL PRINT_SEPARATOR()
+
+  REM Separate expenses and income using FILTER
+  FILTER IS_EXPENSE ON TX_AMOUNT INTO EXPENSES
+  FILTER IS_INCOME ON TX_AMOUNT INTO INCOMES
+
+  REM Negate expenses so they're positive for analysis
+  MAP NEGATE ON EXPENSES INTO POS_EXPENSES
+
+  REM Use REDUCE to find totals
+  LAMBDA ADD(A, B) = A + B
+  REDUCE ADD ON POS_EXPENSES INTO EXPENSE_TOTAL FROM 0
+  REDUCE ADD ON INCOMES INTO INCOME_TOTAL FROM 0
+
+  REM Calculate averages
+  LET AVG_EXPENSE = ROUND(EXPENSE_TOTAL / LENGTH(POS_EXPENSES), 2)
+  LET AVG_INCOME = ROUND(INCOME_TOTAL / LENGTH(INCOMES), 2)
+
+  PRINTF "  Number of expenses:   {0}", LENGTH(POS_EXPENSES)
+  PRINTF "  Number of incomes:    {0}", LENGTH(INCOMES)
+  PRINTF "  Average expense:      {0}", FORMAT_CURRENCY(AVG_EXPENSE)
+  PRINTF "  Average income:       {0}", FORMAT_CURRENCY(AVG_INCOME)
+
+  REM Find min/max expense using a loop
+  LET MAX_EXP = 0
+  LET MIN_EXP = 999999
+  FOREACH E IN POS_EXPENSES
+    IF E > MAX_EXP THEN LET MAX_EXP = E
+    IF E < MIN_EXP THEN LET MIN_EXP = E
+  NEXT E
+
+  PRINTF "  Largest expense:      {0}", FORMAT_CURRENCY(MAX_EXP)
+  PRINTF "  Smallest expense:     {0}", FORMAT_CURRENCY(MIN_EXP)
+
+  REM Standard deviation
+  LET SUM_SQ = 0
+  FOREACH E IN POS_EXPENSES
+    LET DIFF = E - AVG_EXPENSE
+    LET SUM_SQ = SUM_SQ + DIFF * DIFF
+  NEXT E
+  LET STDDEV = ROUND(SQR(SUM_SQ / LENGTH(POS_EXPENSES)), 2)
+  PRINTF "  Expense std. dev:     {0}", FORMAT_CURRENCY(STDDEV)
+
+  CALL PRINT_SEPARATOR()
+  PRINT ""
+END SUB
+
+REM ─────────────────────────────────────────────────
+REM  Section 9: Logo Bar Chart Visualization
+REM ─────────────────────────────────────────────────
+
+REM Colour palette for categories
+DATA "tomato", "dodgerblue", "gold", "mediumseagreen"
+DATA "orchid", "slategray", "limegreen"
+
+TO BAR :x :y :width :height :color
+  PENUP
+  SETXY :x :y
+  PENDOWN
+  SETCOLOR :color
+  SETPENSIZE 1
+  RECT :width :height
+END
+
+SUB DRAW_CHART()
+  CALL CALCULATE_SUMMARY()
+
+  HIDETURTLE
+  PENUP
+  SETPENSIZE 2
+
+  REM Title
+  SETCOLOR "white"
+  SETXY -130 170
+  LABEL "Spending by Category" 12
+
+  REM Find max for scaling
+  LET MAX_VAL = 0
+  FOR I = 0 TO 6
+    LET KEY = "cat_" + TOSTR(I)
+    GET SUMMARY, KEY, VAL_STR
+    LET V = TONUM(VAL_STR)
+    IF V > MAX_VAL AND I <> 6 THEN LET MAX_VAL = V
+  NEXT I
+
+  IF MAX_VAL = 0 THEN LET MAX_VAL = 1
+
+  REM Read the colour palette
+  RESTORE
+  REM Skip past the 15 transaction DATA lines (4 items each = 60 reads)
+  FOR I = 1 TO 60
+    READ SKIP$
+  NEXT I
+
+  REM Draw bars
+  LET BAR_X = -140
+  LET BAR_Y = -120
+  LET BAR_GAP = 40
+
+  FOR I = 0 TO 5
+    READ BAR_COLOR$
+
+    LET KEY = "cat_" + TOSTR(I)
+    GET SUMMARY, KEY, VAL_STR
+    LET V = TONUM(VAL_STR)
+
+    REM Scale bar width proportionally
+    LET W = INT(V / MAX_VAL * BAR_WIDTH)
+    IF W < 2 THEN LET W = 2
+
+    REM Draw the bar
+    BAR BAR_X, BAR_Y + I * BAR_GAP, W, BAR_HEIGHT, BAR_COLOR$
+
+    REM Label
+    PENUP
+    SETCOLOR "white"
+    SETXY BAR_X + W + 8, BAR_Y + I * BAR_GAP + 4
+    LABEL FORMAT_CURRENCY(V) 9
+
+    SETXY BAR_X - 5, BAR_Y + I * BAR_GAP + 4
+    SETHEADING 0
+    LET CNAME = CATEGORY_NAME(I)
+    REM Right-align category name
+    SETXY BAR_X - LEN(CNAME) * 7 - 5, BAR_Y + I * BAR_GAP + 4
+    LABEL CNAME 9
+  NEXT I
+
+  PENUP
+  SETXY -130 -150
+  SETCOLOR "gray"
+  LABEL "(Income category excluded from chart)" 8
+END SUB
+
+REM ─────────────────────────────────────────────────
+REM  Section 10: Interactive Menu with PILOT
+REM ─────────────────────────────────────────────────
+
+*menu
+T:
+T:╔══════════════════════════════════╗
+T:║        MAIN MENU                ║
+T:╠══════════════════════════════════╣
+T:║  1. View All Transactions       ║
+T:║  2. Financial Summary           ║
+T:║  3. Statistical Analysis        ║
+T:║  4. Draw Bar Chart (Logo)       ║
+T:║  5. Add a Transaction           ║
+T:║  6. Search Transactions         ║
+T:║  7. Export as JSON              ║
+T:║  8. Type Check Demo             ║
+T:║  9. Quit                        ║
+T:╚══════════════════════════════════╝
+
+T:Choose an option (1-9):
+A:
+C:CHOICE = ANSWER
+
+REM ─── Dispatch via SELECT CASE ───
+
+SELECT CASE CHOICE
+  CASE 1
+    CALL DISPLAY_TRANSACTIONS()
+  CASE 2
+    CALL DISPLAY_SUMMARY()
+  CASE 3
+    CALL DISPLAY_STATISTICS()
+  CASE 4
+    CALL DRAW_CHART()
+    T:  Chart drawn on canvas!
+  CASE 5
+    CALL ADD_TRANSACTION()
+  CASE 6
+    CALL SEARCH_TRANSACTIONS()
+  CASE 7
+    CALL EXPORT_JSON()
+  CASE 8
+    CALL TYPE_CHECK_DEMO()
+  CASE 9
+    J:quit
+  CASE ELSE
+    T:  Invalid choice. Please enter 1-9.
+END SELECT
+
+P:500
+J:menu
+
+REM ─────────────────────────────────
+REM  Section 11: Add Transaction (PILOT + BASIC mix)
+REM ─────────────────────────────────
+
+SUB ADD_TRANSACTION()
+  T:
+  T:── Add New Transaction ──
+
+  T:Description:
+  A:
+  LET NEW_DESC = ANSWER
+
+  TRY
+    ASSERT LEN(TOSTR(NEW_DESC)) > 0, "Description cannot be empty"
+
+    T:Amount (negative for expense, positive for income):
+    A:
+    LET NEW_AMT = ANSWER
+    ASSERT ISNUMBER(NEW_AMT), "Amount must be a number"
+
+    T:Category (0=Food, 1=Transport, 2=Housing, 3=Utilities, 4=Entertainment, 5=Savings, 6=Income):
+    A:
+    LET NEW_CAT = ANSWER
+    ASSERT NEW_CAT >= 0 AND NEW_CAT <= 6, "Category must be 0-6"
+
+    PUSH TX_DESC, NEW_DESC
+    PUSH TX_AMOUNT, NEW_AMT
+    PUSH TX_CATEGORY, NEW_CAT
+    PUSH TX_DATE, DATE$
+
+    PRINTF "  Added: {0} ({1}) on {2}", NEW_DESC, FORMAT_CURRENCY(NEW_AMT), DATE$
+  CATCH ERR
+    PRINTF "  Error: {0}", ERR
+  END TRY
+END SUB
+
+REM ─────────────────────────────────
+REM  Section 12: Search with REGEX
+REM ─────────────────────────────────
+
+SUB SEARCH_TRANSACTIONS()
+  T:
+  T:── Search Transactions ──
+  T:Enter search term (supports regex):
+  A:
+  LET SEARCH_TERM = TOSTR(ANSWER)
+
+  LET FOUND = 0
+  LET IDX = 0
+  CALL PRINT_SEPARATOR()
+
+  FOREACH DESC IN TX_DESC
+    TRY
+      REGEX MATCH SEARCH_TERM IN DESC INTO HIT
+      IF LEN(TOSTR(HIT)) > 0 THEN
+        LET AMT = TX_AMOUNT[IDX]
+        LET CAT = TX_CATEGORY[IDX]
+        LET DT = TX_DATE[IDX]
+        PRINTF "  {0}  {1}  {2}  {3}", PAD_RIGHT(DT, 12), PAD_RIGHT(CATEGORY_NAME(CAT), 15), PAD_RIGHT(DESC, 22), FORMAT_CURRENCY(AMT)
+        INCR FOUND
+      ENDIF
+    CATCH ERR
+      REM If regex is invalid, fall back to simple CONTAINS
+      IF CONTAINS(UCASE$(DESC), UCASE$(SEARCH_TERM)) THEN
+        LET AMT = TX_AMOUNT[IDX]
+        LET CAT = TX_CATEGORY[IDX]
+        LET DT = TX_DATE[IDX]
+        PRINTF "  {0}  {1}  {2}  {3}", PAD_RIGHT(DT, 12), PAD_RIGHT(CATEGORY_NAME(CAT), 15), PAD_RIGHT(DESC, 22), FORMAT_CURRENCY(AMT)
+        INCR FOUND
+      ENDIF
+    END TRY
+    INCR IDX
+  NEXT DESC
+
+  CALL PRINT_SEPARATOR()
+  IF FOUND = 0 THEN
+    T:  No transactions found.
+  ELSE
+    PRINTF "  Found {0} matching transaction(s).", FOUND
+  ENDIF
+END SUB
+
+REM ─────────────────────────────────
+REM  Section 13: JSON Export
+REM ─────────────────────────────────
+
+SUB EXPORT_JSON()
+  T:
+  T:── Export as JSON ──
+
+  REM Build a summary dict for JSON
+  CALL CALCULATE_SUMMARY()
+
+  DICT EXPORT
+  SET EXPORT.appName = APP_NAME
+  SET EXPORT.version = VERSION
+  SET EXPORT.exportDate = DATE$
+  SET EXPORT.exportTime = TIME$
+
+  GET SUMMARY.transactionCount INTO TC
+  GET SUMMARY.totalIncome INTO TI
+  GET SUMMARY.totalExpenses INTO TE
+  GET SUMMARY.netBalance INTO NB
+
+  SET EXPORT.transactionCount = TC
+  SET EXPORT.totalIncome = TI
+  SET EXPORT.totalExpenses = TE
+  SET EXPORT.netBalance = NB
+
+  JSON STRINGIFY EXPORT INTO JSON_OUT
+  PRINT ""
+  PRINT "  Exported JSON:"
+  CALL PRINT_SEPARATOR()
+  PRINT JSON_OUT
+  CALL PRINT_SEPARATOR()
+
+  REM Demonstrate JSON PARSE roundtrip
+  JSON PARSE JSON_OUT INTO PARSED
+  GET PARSED.appName INTO VERIFIED_NAME
+  PRINTF "  Roundtrip verified: appName = {0}", VERIFIED_NAME
+  PRINT ""
+END SUB
+
+REM ─────────────────────────────────
+REM  Section 14: Type System Demo
+REM ─────────────────────────────────
+
+SUB TYPE_CHECK_DEMO()
+  PRINT ""
+  PRINT "  TYPE SYSTEM DEMONSTRATION"
+  CALL PRINT_SEPARATOR()
+
+  LET INT_VAL = 42
+  LET FLOAT_VAL = 3.14
+  LET STR_VAL = "Hello"
+  LIST LST_VAL = 1, 2, 3
+
+  TYPEOF INT_VAL INTO T1
+  TYPEOF FLOAT_VAL INTO T2
+  TYPEOF STR_VAL INTO T3
+
+  PRINTF "  42        => {0}", T1
+  PRINTF "  3.14      => {0}", T2
+  PRINTF "  \"Hello\"   => {0}", T3
+
+  PRINT ""
+  PRINT "  Type-checking functions:"
+  PRINTF "  ISNUMBER(42)     = {0}", ISNUMBER(42)
+  PRINTF "  ISNUMBER(\"hi\")   = {0}", ISNUMBER("hi")
+  PRINTF "  ISSTRING(\"hi\")   = {0}", ISSTRING("hi")
+  PRINTF "  ISSTRING(42)     = {0}", ISSTRING(42)
+
+  PRINT ""
+  PRINT "  Conversion functions:"
+  PRINTF "  TOSTR(42)        = \"{0}\"", TOSTR(42)
+  PRINTF "  TONUM(\"99\")      = {0}", TONUM("99")
+  PRINTF "  HEX(255)         = {0}", HEX(255)
+  PRINTF "  BIN(42)          = {0}", BIN(42)
+  PRINTF "  OCT(42)          = {0}", OCT(42)
+
+  PRINT ""
+  PRINT "  Math constants:"
+  PRINTF "  PI  = {0}", PI
+  PRINTF "  E   = {0}", E
+  PRINTF "  TAU = {0}", TAU
+
+  PRINT ""
+  PRINT "  Math functions:"
+  PRINTF "  SQR(144)         = {0}", SQR(144)
+  PRINTF "  ROUND(PI, 4)     = {0}", ROUND(PI, 4)
+  PRINTF "  CLAMP(15, 0, 10) = {0}", CLAMP(15, 0, 10)
+  PRINTF "  LERP(0, 100, .5) = {0}", LERP(0, 100, 0.5)
+  PRINTF "  LOG2(256)        = {0}", LOG2(256)
+  PRINTF "  ABS(-7.5)        = {0}", ABS(-7.5)
+  PRINTF "  CEIL(3.2)        = {0}", CEIL(3.2)
+  PRINTF "  FLOOR(3.8)       = {0}", FLOOR(3.8)
+
+  PRINT ""
+  PRINT "  String functions:"
+  LET DEMO_STR = "  Hello, TempleCode!  "
+  PRINTF "  TRIM$(...)        = \"{0}\"", TRIM$(DEMO_STR)
+  PRINTF "  UCASE$(\"hello\")   = \"{0}\"", UCASE$("hello")
+  PRINTF "  LCASE$(\"HELLO\")   = \"{0}\"", LCASE$("HELLO")
+  PRINTF "  LEFT$(\"Hello\",3)  = \"{0}\"", LEFT$("Hello", 3)
+  PRINTF "  MID$(\"Hello\",2,3) = \"{0}\"", MID$("Hello", 2, 3)
+  PRINTF "  REPLACE$(...)     = \"{0}\"", REPLACE$("Hello", "l", "r")
+  PRINTF "  REPEAT$(\"ab\",3)   = \"{0}\"", REPEAT$("ab", 3)
+  PRINTF "  CHR$(65)          = \"{0}\"", CHR$(65)
+  PRINTF "  ASC(\"A\")          = {0}", ASC("A")
+
+  PRINT ""
+  PRINT "  String splitting & joining:"
+  LET CSV = "apple,banana,cherry,date"
+  SPLIT CSV, "," INTO FRUIT_LIST
+  PRINTF "  SPLIT \"{0}\" =>", CSV
+  FOREACH F IN FRUIT_LIST
+    PRINTF "    - {0}", F
+  NEXT F
+  JOIN FRUIT_LIST, " | " INTO REJOINED
+  PRINTF "  JOIN => \"{0}\"", REJOINED
+
+  CALL PRINT_SEPARATOR()
+  PRINT ""
+END SUB
+
+REM ─────────────────────────────────
+REM  Section 15: PILOT Quiz Interlude
+REM ─────────────────────────────────
+
+SUB RUN_QUIZ()
+  T:
+  T:══ Quick Finance Quiz ══
+  T:
+  LET QUIZ_SCORE = 0
+
+  T:Q1: What does ROI stand for?
+  A:
+  M:Return on Investment
+  Y:T:  ✓ Correct!
+  Y:C:QUIZ_SCORE = QUIZ_SCORE + 1
+  N:T:  ✗ It's "Return on Investment"
+
+  T:
+  T:Q2: If you earn $3000 and spend $2400, what's your savings rate?
+  A:
+  M:20,20%
+  Y:T:  ✓ Correct! (20%)
+  Y:C:QUIZ_SCORE = QUIZ_SCORE + 1
+  N:T:  ✗ The answer is 20% ($600 / $3000)
+
+  T:
+  T:Q3: What rule suggests 50% needs, 30% wants, 20% savings?
+  A:
+  M:50/30/20,50-30-20
+  Y:T:  ✓ Correct! The 50/30/20 rule.
+  Y:C:QUIZ_SCORE = QUIZ_SCORE + 1
+  N:T:  ✗ It's the 50/30/20 budgeting rule.
+
+  T:
+  PRINTF "  Your score: {0}/3", QUIZ_SCORE
+  IF QUIZ_SCORE = 3 THEN
+    T:  🏆 Perfect score!
+  ELSEIF QUIZ_SCORE >= 2 THEN
+    T:  👍 Great job!
+  ELSE
+    T:  📚 Keep learning!
+  ENDIF
+  T:
+END SUB
+
+REM ─────────────────────────────────
+REM  Section 16: Logo Art — Decorative Border
+REM ─────────────────────────────────
+
+TO DASHED_LINE :length :dash :gap
+  LET :steps = INT(:length / (:dash + :gap))
+  REPEAT :steps [
+    PENDOWN
+    FORWARD :dash
+    PENUP
+    FORWARD :gap
+  ]
+END
+
+TO CORNER_STAR :size
+  PENDOWN
+  REPEAT 5 [
+    FORWARD :size
+    RIGHT 144
+  ]
+  PENUP
+END
+
+REM ═══════════════════════════════════════════════════
+REM  MAIN PROGRAM
+REM ═══════════════════════════════════════════════════
+
+RANDOMIZE TIMER
+
+CALL PRINT_HEADER()
+
+T:  Loading sample data...
+CALL LOAD_SAMPLE_DATA()
+T:  Ready!
+P:300
+
+REM Run the finance quiz before the main menu
+T:
+T:Before we start, let's test your finance knowledge!
+A:Press Enter to begin the quiz...
+CALL RUN_QUIZ()
+
+P:500
+T:Now let's look at your finances!
+P:300
+
+J:menu
+
+*quit
+T:
+T:Thank you for using the TempleCode Finance Tracker!
+T:
+PRINTF "Session ended at {0}", TIME$
+T:Goodbye! 👋
+E:

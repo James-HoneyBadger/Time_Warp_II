@@ -88,6 +88,39 @@ class TestInput:
         out = run_program(code, input_buffer=["5"])
         assert out.last_line == "15"
 
+    def test_input_dollar_var_with_prompt(self):
+        """INPUT "prompt"; N$ must preserve the $ in the variable name."""
+        out = run_program('INPUT "Name? "; N$\nPRINT N$', input_buffer=["Bob"])
+        assert out.last_line == "Bob"
+
+    def test_input_prompt_no_separator(self):
+        """INPUT "prompt" VAR (no ; or , after the string) should still work."""
+        out = run_program('INPUT "Enter" X\nPRINT X', input_buffer=["12"])
+        assert out.last_line == "12"
+
+    def test_input_prompt_comma(self):
+        out = run_program('INPUT "Val", X\nPRINT X', input_buffer=["99"])
+        assert out.last_line == "99"
+
+    def test_input_float(self):
+        out = run_program("INPUT X\nPRINT X", input_buffer=["3.14"])
+        assert out.last_line == "3.14"
+
+    def test_input_multiple(self):
+        code = "INPUT A\nINPUT B\nLET C = A + B\nPRINT C"
+        out = run_program(code, input_buffer=["10", "20"])
+        assert out.last_line == "30"
+
+    def test_input_in_for_loop(self):
+        code = "LET S = 0\nFOR I = 1 TO 3\nINPUT X\nLET S = S + X\nNEXT I\nPRINT S"
+        out = run_program(code, input_buffer=["5", "10", "15"])
+        assert out.last_line == "30"
+
+    def test_input_in_while_loop(self):
+        code = "LET S = 0\nLET I = 0\nWHILE I < 3\nINPUT X\nLET S = S + X\nINCR I\nWEND\nPRINT S"
+        out = run_program(code, input_buffer=["10", "20", "30"])
+        assert out.last_line == "60"
+
 
 # =====================================================================
 #  BASIC — DIM / arrays

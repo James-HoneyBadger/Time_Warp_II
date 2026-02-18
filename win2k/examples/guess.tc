@@ -1,0 +1,19 @@
+10 REM Number Guessing Game in TempleCode
+20 RANDOMIZE TIMER
+30 LET SECRET = INT(RND * 100) + 1
+40 LET TRIES = 0
+50 PRINT "============================="
+60 PRINT "  Number Guessing Game"
+70 PRINT "============================="
+80 PRINT "I'm thinking of a number between 1 and 100."
+90 PRINT ""
+100 PRINT "Enter your guess:"
+110 INPUT GUESS
+120 LET TRIES = TRIES + 1
+130 IF GUESS = SECRET THEN GOTO 200
+140 IF GUESS < SECRET THEN PRINT "Too low! Try again."
+150 IF GUESS > SECRET THEN PRINT "Too high! Try again."
+160 GOTO 100
+200 PRINT ""
+210 PRINT "Correct! You got it in "; TRIES; " tries!"
+220 END

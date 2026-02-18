@@ -12,12 +12,14 @@ Comprehensive technical documentation for developers working on or extending Tim
 6. [GUI System](#gui-system)
 7. [Syntax Highlighting](#syntax-highlighting)
 8. [Code Templates](#code-templates)
-9. [Data Flow](#data-flow)
-10. [Settings Persistence](#settings-persistence)
-11. [Optimisation Modules](#optimisation-modules)
-12. [Extension Points](#extension-points)
-13. [Testing](#testing)
-14. [Development Workflow](#development-workflow)
+9. [IDE Feature Modules](#ide-feature-modules)
+10. [CLI Module](#cli-module)
+11. [Data Flow](#data-flow)
+12. [Settings Persistence](#settings-persistence)
+13. [Optimisation Modules](#optimisation-modules)
+14. [Extension Points](#extension-points)
+15. [Testing](#testing)
+16. [Development Workflow](#development-workflow)
 
 ---
 
@@ -65,11 +67,15 @@ Time_Warp_II/
 ├── TimeWarpII.py                   # TempleCodeApp — main GUI (~1 900 lines)
 ├── core/
 │   ├── __init__.py
+│   ├── cli.py                      # CLI entry point — run, repl, check, format, gui
 │   ├── config.py                   # THEMES, FONT_SIZES, KEYWORDS, INDENT_OPENERS,
 │   │                               #   PRIORITY_FONTS, WELCOME_MESSAGE
 │   ├── interpreter.py              # TempleCodeInterpreter (~1 070 lines)
 │   ├── features/
 │   │   ├── code_templates.py       # 4 template categories
+│   │   ├── ide_features.py         # WatchManager, Profiler, SnippetManager,
+│   │   │                           #   UndoHistoryManager, import graph tools,
+│   │   │                           #   format_code (auto-indenter)
 │   │   └── syntax_highlighting.py  # TempleCodeLexer (Pygments),
 │   │                               #   SyntaxHighlightingText, LineNumberedText
 │   ├── languages/
@@ -86,7 +92,9 @@ Time_Warp_II/
 ├── tests/
 │   ├── helpers.py                  # HeadlessApp, run_tc helper
 │   ├── test_interpreter.py         # Interpreter unit tests
-│   └── test_all_commands.py        # Full command coverage tests
+│   ├── test_all_commands.py        # Full command coverage tests
+│   ├── test_cli.py                 # CLI sub-command tests
+│   └── test_ide_features.py        # IDE feature module tests
 ├── scripts/
 │   ├── run_tests.py
 │   ├── launch.py
@@ -251,7 +259,7 @@ Each command is a single letter followed by a colon. Optional condition flag (Y/
 | Command | Name | Behaviour |
 |---------|------|-----------|
 | `T:` | Type | Output text; `*var*` interpolates variables |
-| `A:` | Accept | Read user input into `$answer` |
+| `A:` | Accept | Read user input into `$answer`; numeric strings are auto-converted to numbers |
 | `M:` | Match | Match `$answer` against comma-separated patterns; sets `$matched` and `$status` |
 | `Y:` | Yes-branch | Execute only if last `M:` matched (`$status` = 1) |
 | `N:` | No-branch | Execute only if last `M:` did not match |
@@ -466,6 +474,51 @@ Templates are used by the IDE to provide starter code snippets.
 
 ---
 
+## IDE Feature Modules
+
+### File: `core/features/ide_features.py`
+
+Self-contained feature modules used by both the GUI and CLI.
+
+| Class / Function | Purpose |
+|------------------|---------|
+| `WatchManager` | Manage watched variable names; evaluate against interpreter state during debug |
+| `Profiler` | Per-line execution counts and timing; produces a formatted report |
+| `format_code()` | Auto-indent TempleCode source based on block structure (`FOR`/`NEXT`, `IF`/`ENDIF`, etc.) |
+| `SnippetManager` | Built-in + user-defined code snippets; persisted to `~/.templecode_snippets.json` |
+| `UndoHistoryManager` | Explicit snapshot-based undo/redo history with browsable list (max 50 entries) |
+| `parse_imports()` | Extract `IMPORT` statements from TempleCode source |
+| `build_import_graph()` | Build a file dependency graph from an entry `.tc` file |
+| `format_import_graph()` | Render the dependency graph as a readable tree string |
+
+---
+
+## CLI Module
+
+### File: `core/cli.py`
+
+The CLI provides headless access to the interpreter without requiring a GUI.
+
+### Sub-commands
+
+| Command | Description |
+|---------|-------------|
+| `templecode run <file>` | Execute a `.tc` program (supports `--debug`, `--time`, `--profile`, `--export-canvas`) |
+| `templecode repl` | Interactive REPL with program line buffering |
+| `templecode check <file>` | Syntax-check a `.tc` file for unbalanced blocks |
+| `templecode format <file>` | Auto-indent a `.tc` file (`--inplace`, `--check`) |
+| `templecode gui` | Launch the full GUI IDE |
+
+### Architecture
+
+The CLI uses a `_CLIOutputWidget` adapter that implements the minimal tkinter `Text` interface (`insert`, `see`, `delete`) to bridge `TempleCodeInterpreter` output to stdout.
+
+**REPL design:** REPL commands (`CLEAR`, `LIST`, `RUN`, `DEBUG ON/OFF`, `VARS`, `HELP`) are dispatched via a dictionary mapping to extracted handler functions, keeping the main loop simple.
+
+**Syntax checker:** Block-balance checking uses a data-driven `_BLOCK_RULES` table of opener/closer regex patterns, making it straightforward to add new block types.
+
+---
+
 ## Data Flow
 
 ### Program Execution Pipeline
@@ -639,6 +692,8 @@ python -m pytest tests/
 |------|----------|
 | `tests/test_interpreter.py` | Interpreter lifecycle, reset, execute |
 | `tests/test_all_commands.py` | Every BASIC, PILOT, and Logo command |
+| `tests/test_cli.py` | CLI sub-commands (run, repl, check, format) |
+| `tests/test_ide_features.py` | IDE features (watch, profiler, snippets, undo, formatter, import graph) |
 | `tests/helpers.py` | `HeadlessApp` (GUI-less test fixture), `run_tc()` helper |
 
 ### HeadlessApp
