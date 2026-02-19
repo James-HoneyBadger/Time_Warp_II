@@ -507,7 +507,6 @@ SUB SHOW_STATS()
 
     REM --- Min, Max via SORT ---
     IF ECOUNT > 0 THEN
-        LIST ESORTED = ESUM    ' temp  — re-build properly
         LIST ESORTED
         FOREACH V IN EXP_AMTS_ALL
             PUSH ESORTED, V

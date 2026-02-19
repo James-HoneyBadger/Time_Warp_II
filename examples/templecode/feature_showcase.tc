@@ -743,12 +743,12 @@ REM  Section 16: Logo Art — Decorative Border
 REM ─────────────────────────────────
 
 TO DASHED_LINE :length :dash :gap
-  LET :steps = INT(:length / (:dash + :gap))
-  REPEAT :steps [
+  LET STEPS = INT(LENGTH / (DASH + GAP))
+  REPEAT STEPS [
     PENDOWN
-    FORWARD :dash
+    FORWARD DASH
     PENUP
-    FORWARD :gap
+    FORWARD GAP
   ]
 END
 

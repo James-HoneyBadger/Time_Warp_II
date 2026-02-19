@@ -119,10 +119,12 @@ class TempleCodeExecutor:
 
         # ------ Check if it's a user-defined Logo procedure call ------
         if first_word.lower() in self.logo_procedures:
-            return self._call_logo_procedure(first_word.lower(), command.split()[1:])
+            return self._call_logo_procedure(first_word.lower(),
+                                             self._logo_proc_args(command, first_word))
         # Also check interpreter-level logo_procedures (set during TO..END collection)
         if hasattr(self.interpreter, 'logo_procedures') and first_word.lower() in self.interpreter.logo_procedures:
-            return self._call_logo_procedure(first_word.lower(), command.split()[1:])
+            return self._call_logo_procedure(first_word.lower(),
+                                             self._logo_proc_args(command, first_word))
 
         # ------ BASIC statements ------
         return self._dispatch_basic(command, first_word, upper)
@@ -575,8 +577,21 @@ class TempleCodeExecutor:
 
     def _logo_setxy(self, parts):
         self._ensure_turtle()
-        x = self._eval_logo_arg(parts, 1)
-        y = self._eval_logo_arg(parts, 2)
+        # Support comma-separated expressions: SETXY expr1, expr2
+        raw_args = " ".join(parts[1:]).strip()
+        if "," in raw_args:
+            halves = self._smart_split(raw_args, ",")
+            try:
+                x = float(self._eval_basic_expression(halves[0].strip()))
+            except Exception:
+                x = 0
+            try:
+                y = float(self._eval_basic_expression(halves[1].strip())) if len(halves) > 1 else 0
+            except Exception:
+                y = 0
+        else:
+            x = self._eval_logo_arg(parts, 1)
+            y = self._eval_logo_arg(parts, 2)
         tg = self.interpreter.turtle_graphics
         if tg:
             if tg["pen_down"] and tg.get("canvas"):
@@ -675,7 +690,15 @@ class TempleCodeExecutor:
         self._ensure_turtle()
         tg = self.interpreter.turtle_graphics
         if tg and len(parts) > 1:
-            color = " ".join(parts[1:]).strip().lower()
+            raw = " ".join(parts[1:]).strip()
+            # Resolve :VAR (Logo-style) and bare variable names
+            if raw.startswith(":"):
+                raw = str(self.interpreter.variables.get(raw[1:].upper(), raw))
+            elif " " not in raw:
+                resolved = self.interpreter.variables.get(raw.upper())
+                if resolved is not None:
+                    raw = str(resolved)
+            color = raw.lower()
             color_map = {
                 "0": "black", "1": "blue", "2": "green", "3": "cyan",
                 "4": "red", "5": "magenta", "6": "yellow", "7": "white",
@@ -699,7 +722,15 @@ class TempleCodeExecutor:
         self._ensure_turtle()
         tg = self.interpreter.turtle_graphics
         if tg and len(parts) > 1:
-            tg["fill_color"] = " ".join(parts[1:]).strip().lower()
+            raw = " ".join(parts[1:]).strip()
+            # Resolve :VAR (Logo-style) and bare variable names
+            if raw.startswith(":"):
+                raw = str(self.interpreter.variables.get(raw[1:].upper(), raw))
+            elif " " not in raw:
+                resolved = self.interpreter.variables.get(raw.upper())
+                if resolved is not None:
+                    raw = str(resolved)
+            tg["fill_color"] = raw.lower()
         return "continue"
 
     def _logo_setbackground(self, parts):
@@ -985,6 +1016,17 @@ class TempleCodeExecutor:
         self.interpreter.logo_procedures[proc_name] = (params, body_lines)
         return "continue"
 
+    def _logo_proc_args(self, command, first_word):
+        """Extract args for a Logo procedure call.
+        Uses comma-split when commas are present (for multi-expression args),
+        otherwise falls back to whitespace-split (classic Logo style)."""
+        rest = command[len(first_word):].strip()
+        if not rest:
+            return []
+        if "," in rest:
+            return [a.strip() for a in self._smart_split(rest, ",") if a.strip()]
+        return rest.split()
+
     def _call_logo_procedure(self, proc_name, args):
         """Call a user-defined Logo procedure."""
         procs = self.logo_procedures
@@ -1176,6 +1218,10 @@ class TempleCodeExecutor:
         # List operations
         elif cmd == "LIST":
             return self._modern_list(command)
+        elif cmd == "SPLIT":
+            return self._modern_split_stmt(command)
+        elif cmd == "JOIN":
+            return self._modern_join_stmt(command)
         elif cmd == "PUSH":
             return self._modern_push(command)
         elif cmd == "POP":
@@ -1415,6 +1461,11 @@ class TempleCodeExecutor:
 
         value = self._eval_basic_expression(expr)
         self.interpreter.variables[var_name] = value
+        # Mirror Python lists (e.g. from SPLIT()) into interpreter.lists so
+        # list-indexing syntax (X[n]) and LENGTH(X) work without a separate
+        # LIST declaration.
+        if isinstance(value, list):
+            self.interpreter.lists[var_name] = value
         return "continue"
 
     # --- BASIC INPUT ---
@@ -2068,18 +2119,29 @@ class TempleCodeExecutor:
     # ==================================================================
 
     def _logo_label(self, parts):
-        """LABEL \"text\" [size] — draw text at the turtle's current position."""
+        """LABEL \"text\" [size]  or  LABEL expr [size] — draw text at turtle position."""
         self._ensure_turtle()
-        text = " ".join(parts[1:]).strip().strip('"')
+        raw = " ".join(parts[1:]).strip()
         size = 12
         # Check for trailing number as font size
-        tokens = text.rsplit(None, 1)
+        tokens = raw.rsplit(None, 1)
         if len(tokens) == 2:
             try:
                 size = int(tokens[1])
-                text = tokens[0]
+                raw = tokens[0]
             except ValueError:
                 pass
+        # Quoted string literal → use as-is
+        if raw.startswith('"') and raw.endswith('"'):
+            text = raw[1:-1]
+        elif raw.startswith("'") and raw.endswith("'"):
+            text = raw[1:-1]
+        else:
+            # Evaluate as expression (variable name, function call, etc.)
+            try:
+                text = str(self._eval_basic_expression(raw))
+            except Exception:
+                text = raw
         self.interpreter.turtle_text(text, size)
         return "continue"
 
@@ -2105,7 +2167,8 @@ class TempleCodeExecutor:
         # String concatenation with +
         if '"' in expr and '+' in expr:
             parts = self._split_string_concat(expr)
-            return "".join(str(self._eval_basic_expression(p.strip())) for p in parts)
+            if len(parts) > 1:  # only concat when the expression actually splits
+                return "".join(str(self._eval_basic_expression(p.strip())) for p in parts)
 
         # Variable reference (including A$ string vars)
         if re.match(r'^[A-Za-z_]\w*\$?$', expr):
@@ -2119,8 +2182,21 @@ class TempleCodeExecutor:
             if var_name == "TIME$":
                 import datetime as _dt
                 return _dt.datetime.now().strftime("%H:%M:%S")
-            val = self.interpreter.variables.get(var_name, 0)
-            return val
+            # Check user-assigned variables first; fall back to math constants.
+            # Use `in` check (not truthiness) so that variables set to 0 or ""
+            # are returned correctly rather than falling through to a constant.
+            if var_name in self.interpreter.variables:
+                return self.interpreter.variables[var_name]
+            # Mathematical constants (only when not shadowed by a user variable)
+            if var_name == "PI":
+                return math.pi
+            if var_name == "E":
+                return math.e
+            if var_name == "TAU":
+                return math.tau
+            if var_name == "INF":
+                return float("inf")
+            return 0
 
         # BASIC built-in functions
         upper_expr = expr.upper()
@@ -2158,15 +2234,16 @@ class TempleCodeExecutor:
                 return random.randint(1, max(1, n))
             return random.random()
 
-        # INT function
+        # INT function — standard BASIC INT() is the floor function
         int_match = re.match(r'^INT\((.+)\)$', upper_expr)
         if int_match:
-            return int(float(self._eval_basic_expression(int_match.group(1))))
+            return math.floor(float(self._eval_basic_expression(int_match.group(1))))
 
-        # ABS function
+        # ABS function — return int when result is a whole number
         abs_match = re.match(r'^ABS\((.+)\)$', upper_expr)
         if abs_match:
-            return abs(float(self._eval_basic_expression(abs_match.group(1))))
+            v = abs(float(self._eval_basic_expression(abs_match.group(1))))
+            return int(v) if v == int(v) else v
 
         # SQRT function
         sqrt_match = re.match(r'^SQRT?\((.+)\)$', upper_expr)
@@ -2203,54 +2280,58 @@ class TempleCodeExecutor:
         if len_match:
             return len(str(self._eval_basic_expression(len_match.group(1))))
 
-        mid_match = re.match(r'^MID\$?\((.+),\s*(.+),\s*(.+)\)$', upper_expr)
+        # String functions — use re.IGNORECASE on the original expr so that
+        # string literals inside arguments are NOT uppercased.
+        mid_match = re.match(r'^MID\$?\((.+),\s*(.+),\s*(.+)\)$', expr, re.IGNORECASE)
         if mid_match:
             s = str(self._eval_basic_expression(mid_match.group(1)))
             start = int(float(self._eval_basic_expression(mid_match.group(2)))) - 1
             length = int(float(self._eval_basic_expression(mid_match.group(3))))
             return s[start:start + length]
 
-        left_match = re.match(r'^LEFT\$?\((.+),\s*(.+)\)$', upper_expr)
+        left_match = re.match(r'^LEFT\$?\((.+),\s*(.+)\)$', expr, re.IGNORECASE)
         if left_match:
             s = str(self._eval_basic_expression(left_match.group(1)))
             n = int(float(self._eval_basic_expression(left_match.group(2))))
             return s[:n]
 
-        right_match = re.match(r'^RIGHT\$?\((.+),\s*(.+)\)$', upper_expr)
+        right_match = re.match(r'^RIGHT\$?\((.+),\s*(.+)\)$', expr, re.IGNORECASE)
         if right_match:
             s = str(self._eval_basic_expression(right_match.group(1)))
             n = int(float(self._eval_basic_expression(right_match.group(2))))
             return s[-n:] if n > 0 else ""
 
-        chr_match = re.match(r'^CHR\$?\((.+)\)$', upper_expr)
+        chr_match = re.match(r'^CHR\$?\((.+)\)$', expr, re.IGNORECASE)
         if chr_match:
             return chr(int(float(self._eval_basic_expression(chr_match.group(1)))))
 
-        asc_match = re.match(r'^ASC\((.+)\)$', upper_expr)
+        asc_match = re.match(r'^ASC\((.+)\)$', expr, re.IGNORECASE)
         if asc_match:
             s = str(self._eval_basic_expression(asc_match.group(1)))
             return ord(s[0]) if s else 0
 
-        str_match = re.match(r'^STR\$?\((.+)\)$', upper_expr)
+        str_match = re.match(r'^STR\$?\((.+)\)$', expr, re.IGNORECASE)
         if str_match:
             return str(self._eval_basic_expression(str_match.group(1)))
 
-        val_match = re.match(r'^VAL\((.+)\)$', upper_expr)
+        val_match = re.match(r'^VAL\((.+)\)$', expr, re.IGNORECASE)
         if val_match:
+            v = self._eval_basic_expression(val_match.group(1))
             try:
-                return float(str(self._eval_basic_expression(val_match.group(1))))
-            except ValueError:
+                f = float(v)
+                return int(f) if f == int(f) else f
+            except (ValueError, TypeError):
                 return 0
 
-        ucase_match = re.match(r'^UCASE\$?\((.+)\)$', upper_expr)
+        ucase_match = re.match(r'^UCASE\$?\((.+)\)$', expr, re.IGNORECASE)
         if ucase_match:
             return str(self._eval_basic_expression(ucase_match.group(1))).upper()
 
-        lcase_match = re.match(r'^LCASE\$?\((.+)\)$', upper_expr)
+        lcase_match = re.match(r'^LCASE\$?\((.+)\)$', expr, re.IGNORECASE)
         if lcase_match:
             return str(self._eval_basic_expression(lcase_match.group(1))).lower()
 
-        instr_match = re.match(r'^INSTR\((.+),\s*(.+)\)$', upper_expr)
+        instr_match = re.match(r'^INSTR\((.+),\s*(.+)\)$', expr, re.IGNORECASE)
         if instr_match:
             haystack = str(self._eval_basic_expression(instr_match.group(1)))
             needle = str(self._eval_basic_expression(instr_match.group(2)))
@@ -2264,15 +2345,16 @@ class TempleCodeExecutor:
         if ext_result is not expr:  # extended evaluator handled it
             return ext_result
 
-        # Array access / user-defined function call: name(args)
-        arr_match = re.match(r'^(\w+)\((.+)\)$', expr)
+        # Array access / user-defined function call: name(args) or name()
+        arr_match = re.match(r'^(\w+)\((.*)\)$', expr)
         if arr_match:
             arr_name = arr_match.group(1).upper()
             # Check if this is a user-defined function call
             if arr_name in self.interpreter.function_definitions:
                 defn = self.interpreter.function_definitions[arr_name]
                 # Use _smart_split to correctly handle nested calls like f(g(x, y), z)
-                args = [a.strip() for a in self._smart_split(arr_match.group(2), ",")]
+                raw_args = arr_match.group(2).strip()
+                args = [a.strip() for a in self._smart_split(raw_args, ",")] if raw_args else []
                 if defn.get("is_lambda"):
                     return self._apply_func(arr_name, [self._eval_basic_expression(a) for a in args])
                 else:
@@ -2289,9 +2371,38 @@ class TempleCodeExecutor:
             except (TypeError, ValueError):
                 pass
 
+        # Pre-substitute user-defined function calls in compound expressions
+        # (e.g. "N * FACT(N - 1)") before handing off to evaluate_expression.
+        _subst = expr
+        for _fn_name in self.interpreter.function_definitions:
+            if _fn_name.upper() + "(" in _subst.upper():
+                _subst = re.sub(
+                    rf'\b{re.escape(_fn_name)}\s*\(([^()]*)\)',
+                    lambda m, fn=_fn_name: str(self._eval_basic_expression(
+                        f"{fn}({m.group(1)})"
+                    )),
+                    _subst,
+                    flags=re.IGNORECASE,
+                )
+        # If the expression contains a bare = (BASIC equality test) or <>,
+        # those would cause Python SyntaxError inside eval(); route them through
+        # _eval_basic_condition which handles BASIC comparisons natively.
+        _has_bare_eq = bool(re.search(r'(?<![=<>!])=(?!=)', _subst))
+        _has_neq = '<>' in _subst
+        if _has_bare_eq or _has_neq:
+            try:
+                return 1 if self._eval_basic_condition(_subst) else 0
+            except Exception:
+                pass
         # Fall through to interpreter's evaluate_expression
         try:
-            return self.interpreter.evaluate_expression(expr)
+            return self.interpreter.evaluate_expression(_subst)
+        except Exception:
+            pass
+        # Last resort: try interpreting the expression as a boolean condition
+        # (handles cases like "N MOD 2 = 0" used in a RETURN or LET context)
+        try:
+            return 1 if self._eval_basic_condition(expr) else 0
         except Exception:
             return expr
 
@@ -2475,16 +2586,23 @@ class TempleCodeExecutor:
 
         # Save caller state
         saved_vars = {}
+        saved_lists = {}
         for i, param in enumerate(params):
             saved_vars[param] = self.interpreter.variables.get(param)
+            saved_lists[param] = self.interpreter.lists.get(param)
             if i < len(args):
                 val = self._eval_basic_expression(args[i])
                 self.interpreter.variables[param] = val
+                # If the arg is a list name, also bind the list under the param name
+                arg_upper = str(args[i]).strip().upper()
+                if arg_upper in self.interpreter.lists:
+                    self.interpreter.lists[param] = self.interpreter.lists[arg_upper]
 
         # Save execution position
         self.interpreter.call_stack.append({
             "return_line": self.interpreter.current_line,
             "saved_vars": saved_vars,
+            "saved_lists": saved_lists,
             "params": params,
         })
 
@@ -2513,6 +2631,11 @@ class TempleCodeExecutor:
                 self.interpreter.variables[param] = frame["saved_vars"][param]
             elif param in self.interpreter.variables:
                 del self.interpreter.variables[param]
+            # Restore list binding
+            if frame.get("saved_lists", {}).get(param) is not None:
+                self.interpreter.lists[param] = frame["saved_lists"][param]
+            elif param in self.interpreter.lists:
+                del self.interpreter.lists[param]
 
         self.interpreter.current_line = frame["return_line"]
         return "continue"
@@ -2553,6 +2676,38 @@ class TempleCodeExecutor:
         else:
             name = text.strip().upper()
             self.interpreter.lists[name] = []
+        return "continue"
+
+    def _modern_split_stmt(self, command):
+        """SPLIT expr, delimiter INTO list_name
+        Statement form of the SPLIT expression function."""
+        text = re.sub(r'^SPLIT\s+', '', command, flags=re.IGNORECASE).strip()
+        m = re.match(r'(.+?),\s*(".*?"|\'.*?\'|\S+)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("SPLIT syntax: SPLIT expr, delimiter INTO list_name")
+            return "continue"
+        src = str(self._eval_basic_expression(m.group(1).strip()))
+        delim = str(self._eval_basic_expression(m.group(2).strip()))
+        list_name = m.group(3).upper()
+        result = src.split(delim)
+        self.interpreter.lists[list_name] = result
+        self.interpreter.variables[list_name] = result
+        self.interpreter.variables[list_name + "_LENGTH"] = len(result)
+        return "continue"
+
+    def _modern_join_stmt(self, command):
+        """JOIN list_name, delimiter INTO result_var
+        Statement form of the JOIN expression function."""
+        text = re.sub(r'^JOIN\s+', '', command, flags=re.IGNORECASE).strip()
+        m = re.match(r'(\w+),\s*(".*?"|\'.*?\'|\S+)\s+INTO\s+(\w+)', text, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output("JOIN syntax: JOIN list_name, delimiter INTO result_var")
+            return "continue"
+        list_name = m.group(1).upper()
+        delim = str(self._eval_basic_expression(m.group(2).strip()))
+        result_var = m.group(3).upper()
+        lst = self.interpreter.lists.get(list_name, [])
+        self.interpreter.variables[result_var] = delim.join(str(x) for x in lst)
         return "continue"
 
     def _modern_push(self, command):
@@ -2838,7 +2993,7 @@ class TempleCodeExecutor:
             with open(filename, "r", encoding="utf-8") as f:
                 self.interpreter.variables[var] = f.read()
         except Exception as e:
-            self.interpreter.log_output(f"File error: {e}")
+            self.interpreter.log_error(f"File error: {e}")
             self.interpreter.variables[var] = ""
         return "continue"
 
@@ -2948,7 +3103,7 @@ class TempleCodeExecutor:
         NEXT var
 
         Also supports: FOREACH key, value IN dict_name"""
-        m = re.match(r'FOREACH\s+(\w+)(?:\s*,\s*(\w+))?\s+IN\s+(\w+)', command, re.IGNORECASE)
+        m = re.match(r'FOREACH\s+([\w$]+)(?:\s*,\s*([\w$]+))?\s+IN\s+([\w$]+)', command, re.IGNORECASE)
         if not m:
             self.interpreter.log_output("FOREACH syntax: FOREACH var IN collection")
             return "continue"
@@ -2973,10 +3128,12 @@ class TempleCodeExecutor:
             scan += 1
         body_end = scan
 
+        # Track (line_index, command) so nested FOREACH/FOR can scan
+        # program_lines from the correct position.
         body_lines = []
         for idx in range(body_start, body_end):
             _, cmd = self.interpreter.program_lines[idx]
-            body_lines.append(cmd)
+            body_lines.append((idx, cmd))
 
         # Determine collection type
         items = []
@@ -3002,16 +3159,30 @@ class TempleCodeExecutor:
             self.interpreter.variables[var1] = item[0]
             if var2 and item[1] is not None:
                 self.interpreter.variables[var2] = item[1]
-            for line in body_lines:
+            _broke = False
+            i = 0
+            while i < len(body_lines):
+                line_idx, line = body_lines[i]
                 line = line.strip()
                 if line:
+                    # Set current_line so nested FOREACH/FOR can locate their
+                    # body in program_lines by scanning from this position.
+                    self.interpreter.current_line = line_idx
                     result = self.execute_command(line)
                     if result in ("end", "stop", "return"):
                         self.interpreter.current_line = body_end
                         return result
                     if result == "break":
-                        self.interpreter.current_line = body_end
-                        return "continue"
+                        _broke = True
+                        break
+                # If current_line advanced (e.g. nested FOREACH consumed lines),
+                # skip outer body_lines that were already handled.
+                new_pos = self.interpreter.current_line
+                while i + 1 < len(body_lines) and body_lines[i + 1][0] <= new_pos:
+                    i += 1
+                i += 1
+            if _broke:
+                break
 
         self.interpreter.current_line = body_end
         return "continue"
@@ -3575,6 +3746,12 @@ class TempleCodeExecutor:
                 if 0 <= idx < len(lst):
                     return lst[idx]
                 return ""
+            # Fallback: variable may hold a Python list (e.g. from SPLIT)
+            lv = self.interpreter.variables.get(name)
+            if isinstance(lv, list):
+                if 0 <= idx < len(lv):
+                    return lv[idx]
+                return ""
 
         # Dict access: DICTNAME.key
         m = re.match(r'(\w+)\.(\w+)', expr)
@@ -3593,6 +3770,9 @@ class TempleCodeExecutor:
             if name in self.interpreter.dicts:
                 return len(self.interpreter.dicts[name])
             val = self.interpreter.variables.get(name, "")
+            # Variable may hold a Python list (e.g. from SPLIT)
+            if isinstance(val, list):
+                return len(val)
             return len(str(val))
 
         # KEYS(dict) / VALUES(dict)
@@ -3741,7 +3921,11 @@ class TempleCodeExecutor:
         if _args and len(_args) in (1, 2):
             val = float(self._eval_basic_expression(_args[0]))
             decimals = int(float(self._eval_basic_expression(_args[1]))) if len(_args) == 2 else 0
-            return round(val, decimals)
+            result = round(val, decimals)
+            # Return int when rounding to 0 decimal places and result is whole
+            if decimals == 0:
+                return int(result)
+            return result
 
         # FLOOR(value)
         m = re.match(r'FLOOR\((.+)\)', expr, re.IGNORECASE)
@@ -3753,7 +3937,8 @@ class TempleCodeExecutor:
         if _args and len(_args) == 2:
             base = float(self._eval_basic_expression(_args[0]))
             exp = float(self._eval_basic_expression(_args[1]))
-            return base ** exp
+            result = base ** exp
+            return int(result) if result == int(result) else result
 
         # CLAMP(value, min, max)
         _args = self._func_args_split(expr, "CLAMP")

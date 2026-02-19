@@ -63,9 +63,7 @@ REM --- Compute statistics ---
 LET AVG = AVERAGE(DATA)
 SORT DATA
 SHIFT DATA, MIN_VAL
-LIST TEMP = MIN_VAL
-LET L = DATA_LENGTH
-REM Get max from sorted list
+REM Get max from sorted list (DATA is now ascending, last element is max)
 FOREACH V IN DATA
   LET MAX_VAL = V
 NEXT V

@@ -2,6 +2,18 @@ REM TempleCode Interactive Drawing
 REM Mix of all three heritages: user chooses shapes via PILOT,
 REM BASIC handles logic, Logo draws on canvas
 
+REM SUB for drawing the spiral (called from PILOT section)
+SUB DRAW_SPIRAL()
+    FOR I = 1 TO 60
+        IF I MOD 4 = 0 THEN SETCOLOR red
+        IF I MOD 4 = 1 THEN SETCOLOR blue
+        IF I MOD 4 = 2 THEN SETCOLOR green
+        IF I MOD 4 = 3 THEN SETCOLOR orange
+        FORWARD I * 2
+        RIGHT 91
+    NEXT I
+END SUB
+
 CLEARSCREEN
 PRINT "================================"
 PRINT "   Interactive Shape Artist"
@@ -28,9 +40,8 @@ M:1,square
 Y:T:What colour? (red, blue, green, etc.)
 Y:A:
 Y:C:COLOUR = ANSWER
-M:1,square
 Y:CLEARSCREEN
-Y:SETCOLOR $COLOUR
+Y:SETCOLOR COLOUR
 Y:SETPENSIZE 2
 Y:SQUARE 80
 Y:T:Drew a square!
@@ -40,9 +51,8 @@ M:2,triangle
 Y:T:What colour?
 Y:A:
 Y:C:COLOUR = ANSWER
-M:2,triangle
 Y:CLEARSCREEN
-Y:SETCOLOR $COLOUR
+Y:SETCOLOR COLOUR
 Y:SETPENSIZE 2
 Y:TRIANGLE 80
 Y:T:Drew a triangle!
@@ -52,9 +62,8 @@ M:3,star
 Y:T:What colour?
 Y:A:
 Y:C:COLOUR = ANSWER
-M:3,star
 Y:CLEARSCREEN
-Y:SETCOLOR $COLOUR
+Y:SETCOLOR COLOUR
 Y:SETPENSIZE 2
 Y:STAR 5 60
 Y:T:Drew a star!
@@ -63,15 +72,7 @@ Y:J:*menu
 M:4,spiral
 Y:CLEARSCREEN
 Y:SETPENSIZE 2
-M:4,spiral
-FOR I = 1 TO 60
-    IF I MOD 4 = 0 THEN SETCOLOR red
-    IF I MOD 4 = 1 THEN SETCOLOR blue
-    IF I MOD 4 = 2 THEN SETCOLOR green
-    IF I MOD 4 = 3 THEN SETCOLOR orange
-    FORWARD I * 2
-    RIGHT 91
-NEXT I
+Y:CALL DRAW_SPIRAL()
 Y:T:Drew a spiral!
 Y:J:*menu
 
@@ -79,7 +80,6 @@ M:5,flower
 Y:CLEARSCREEN
 Y:SETCOLOR red
 Y:SETPENSIZE 2
-M:5,flower
 Y:REPEAT 12 [REPEAT 4 [FORWARD 30 RIGHT 90] RIGHT 30]
 Y:SETCOLOR yellow
 Y:DOT 15

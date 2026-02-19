@@ -781,6 +781,15 @@ class TempleCodeInterpreter:
         safe_dict = {"__builtins__": {}}
         safe_dict.update(allowed)
 
+        # Mathematical constants — substitute before eval so PI/E/TAU/INF
+        # in arithmetic expressions like "PI / 4" or "E ** 2" work correctly.
+        expr = re.sub(r'\bPI\b', str(math.pi), expr)
+        expr = re.sub(r'\bTAU\b', str(math.tau), expr)
+        expr = re.sub(r'\bINF\b', str(float("inf")), expr)
+        # E is a single-letter constant; only substitute when it is NOT a
+        # variable (variables are already substituted above at this point).
+        expr = re.sub(r'\bE\b', str(math.e), expr)
+
         # Handle RND variants
         rnd_val = str(random.random())
         expr = expr.replace("RND(1)", rnd_val)
@@ -1103,6 +1112,31 @@ class TempleCodeInterpreter:
                     break
                 if result == "return":
                     break  # SUB/FUNCTION return
+                if result == "break":
+                    # BREAK statement: skip forward past the nearest loop end
+                    # (NEXT / WEND / LOOP) respecting nesting depth.
+                    depth = 0
+                    self.current_line += 1
+                    while self.current_line < len(self.program_lines):
+                        _, lt = self.program_lines[self.current_line]
+                        lu = lt.strip().upper()
+                        if lu.startswith("FOR ") or lu.startswith("WHILE ") or lu == "WHILE" or lu.startswith("DO"):
+                            depth += 1
+                        elif lu.startswith("NEXT") or lu == "WEND" or lu.startswith("LOOP"):
+                            if depth == 0:
+                                # Jump PAST this keyword so it is not re-executed
+                                self.current_line += 1
+                                break
+                            depth -= 1
+                        self.current_line += 1
+                    # Pop the innermost active loop stack entry
+                    if self.for_stack:
+                        self.for_stack.pop()
+                    elif hasattr(self, "while_stack") and self.while_stack:
+                        self.while_stack.pop()
+                    elif hasattr(self, "do_stack") and self.do_stack:
+                        self.do_stack.pop()
+                    continue
                 if result == "jump":
                     continue
                 if isinstance(result, str) and result.startswith("jump:"):
