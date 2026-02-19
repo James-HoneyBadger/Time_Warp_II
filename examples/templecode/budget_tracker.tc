@@ -1,0 +1,1077 @@
+REM ================================================================
+REM  BUDGET TRACKER PRO — Personal Finance Manager
+REM  A full-featured budget tracking application in TempleCode
+REM
+REM  Demonstrates:
+REM    BASIC: FOR/WHILE/DO, SELECT CASE, GOSUB, DIM, DATA/READ
+REM    PILOT: T:, A:, M:, Y:, N:, J:, L:, *labels
+REM    Logo:  turtle bar chart with SETXY, PENDOWN, FORWARD, LABEL
+REM    Modern: STRUCT, DICT, LIST, PUSH/POP/SORT/SPLICE, FOREACH,
+REM            FUNCTION, SUB, LAMBDA, MAP/FILTER/REDUCE, TRY/CATCH,
+REM            File I/O, REGEX, PRINTF, FORMAT$, REPEAT$, SPLIT,
+REM            DATE$, TIME$, INCR/DECR, CONST, ASSERT
+REM ================================================================
+
+CONST APP_TITLE = "Budget Tracker Pro"
+CONST DATA_FILE = "budget_data.csv"
+CONST BAR  = "="
+CONST LINE = "-"
+CONST SEP  = "|"
+
+REM --- Parallel lists — one entry per transaction ---
+LIST TX_TYPES      ' "INC" or "EXP"
+LIST TX_DATES
+LIST TX_CATS
+LIST TX_AMTS       ' numeric
+LIST TX_DESCS
+LET TX_COUNT = 0
+
+REM --- Budget limits per expense category ---
+DICT BUDGETS
+
+REM --- Expense & income category names ---
+LIST EXP_CATS = "Food", "Transport", "Housing", "Entertainment", "Health", "Utilities", "Shopping", "Other"
+LIST INC_CATS = "Salary", "Freelance", "Investment", "Gift", "Rental", "Other"
+
+REM ================================================================
+REM  SECTION 1 — UTILITY FUNCTIONS
+REM ================================================================
+
+FUNCTION RPAD(S, N)
+    LET R$ = TOSTR(S)
+    WHILE LEN(R$) < N
+        LET R$ = R$ + " "
+    WEND
+    RETURN R$
+END FUNCTION
+
+FUNCTION LPAD(S, N)
+    LET R$ = TOSTR(S)
+    WHILE LEN(R$) < N
+        LET R$ = " " + R$
+    WEND
+    RETURN R$
+END FUNCTION
+
+FUNCTION BANNER(MSG$, W)
+    LET PAD = INT((W - LEN(MSG$)) / 2)
+    RETURN REPEAT$(" ", PAD) + MSG$ + REPEAT$(SEP, 0)
+END FUNCTION
+
+FUNCTION MONEY(AMT)
+    IF AMT < 0 THEN
+        RETURN "-$" + FORMAT$(ABS(AMT), ".2f")
+    END IF
+    RETURN "$" + FORMAT$(AMT, ".2f")
+END FUNCTION
+
+FUNCTION PCTBAR(PCT, WIDTH)
+    LET FILLED = INT(PCT / 100 * WIDTH)
+    IF FILLED > WIDTH THEN LET FILLED = WIDTH
+    IF FILLED < 0 THEN LET FILLED = 0
+    RETURN "[" + REPEAT$("#", FILLED) + REPEAT$(".", WIDTH - FILLED) + "]"
+END FUNCTION
+
+FUNCTION TODAY()
+    RETURN DATE$
+END FUNCTION
+
+REM ================================================================
+REM  SECTION 2 — DATA FUNCTIONS
+REM ================================================================
+
+REM Returns total income across all transactions
+FUNCTION TOTAL_INC()
+    LET SUM = 0
+    LET I = 0
+    FOREACH AMT IN TX_AMTS
+        IF TX_TYPES[I] = "INC" THEN
+            LET SUM = SUM + AMT
+        END IF
+        INCR I
+    NEXT AMT
+    RETURN SUM
+END FUNCTION
+
+REM Returns total expenses across all transactions
+FUNCTION TOTAL_EXP()
+    LET SUM = 0
+    LET I = 0
+    FOREACH AMT IN TX_AMTS
+        IF TX_TYPES[I] = "EXP" THEN
+            LET SUM = SUM + AMT
+        END IF
+        INCR I
+    NEXT AMT
+    RETURN SUM
+END FUNCTION
+
+REM Returns total for a specific type + category
+FUNCTION CAT_TOTAL(CAT$, TYPE$)
+    LET SUM = 0
+    LET I = 0
+    FOREACH AMT IN TX_AMTS
+        IF TX_TYPES[I] = TYPE$ AND TX_CATS[I] = CAT$ THEN
+            LET SUM = SUM + AMT
+        END IF
+        INCR I
+    NEXT AMT
+    RETURN SUM
+END FUNCTION
+
+REM Check whether any budget was exceeded — returns 1 or 0
+FUNCTION ANY_OVER_BUDGET()
+    FOREACH C$ IN EXP_CATS
+        IF HASKEY(BUDGETS, C$) THEN
+            GET BUDGETS, C$, BUD
+            LET SPENT = CAT_TOTAL(C$, "EXP")
+            IF SPENT > BUD THEN RETURN 1
+        END IF
+    NEXT C$
+    RETURN 0
+END FUNCTION
+
+REM Push a new transaction onto the parallel lists
+SUB RECORD_TX(TYPE$, CAT$, AMT, DESC$)
+    PUSH TX_TYPES, TYPE$
+    PUSH TX_DATES, TODAY()
+    PUSH TX_CATS,  CAT$
+    PUSH TX_AMTS,  AMT
+    PUSH TX_DESCS, DESC$
+    INCR TX_COUNT
+END SUB
+
+REM ================================================================
+REM  SECTION 3 — ADD INCOME
+REM ================================================================
+
+SUB ADD_INCOME()
+    PRINT ""
+    PRINT REPEAT$(BAR, 52)
+    PRINT BANNER("ADD INCOME", 52)
+    PRINT REPEAT$(BAR, 52)
+    PRINT ""
+    PRINT "Categories:"
+    LET IDX = 1
+    FOREACH C$ IN INC_CATS
+        PRINT "  " + TOSTR(IDX) + ". " + C$
+        INCR IDX
+    NEXT C$
+    PRINT ""
+
+    INPUT "Category number (1-6): "; CNUM
+
+    TRY
+        ASSERT CNUM >= 1 AND CNUM <= 6, "Choose 1-6"
+        LET CNUM = INT(CNUM)
+        LET CNAME$ = ""
+        LET CI = 1
+        FOREACH C$ IN INC_CATS
+            IF CI = CNUM THEN LET CNAME$ = C$
+            INCR CI
+        NEXT C$
+    CATCH E
+        PRINT "  ⚠  Invalid: using 'Other'"
+        LET CNAME$ = "Other"
+    END TRY
+
+    INPUT "Amount:      $"; AMT
+    TRY
+        ASSERT AMT > 0, "Amount must be positive"
+    CATCH E
+        PRINT "  ✗  Cancelled: " + E
+        RETURN
+    END TRY
+
+    INPUT "Description:  "; DESC$
+
+    CALL RECORD_TX("INC", CNAME$, AMT, DESC$)
+
+    PRINT ""
+    PRINTF "  ✓  Income recorded: {0}  [{1}]  on {2}", MONEY(AMT), CNAME$, TODAY()
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 4 — ADD EXPENSE
+REM ================================================================
+
+SUB ADD_EXPENSE()
+    PRINT ""
+    PRINT REPEAT$(BAR, 52)
+    PRINT BANNER("ADD EXPENSE", 52)
+    PRINT REPEAT$(BAR, 52)
+    PRINT ""
+    PRINT "Categories:"
+    LET IDX = 1
+    FOREACH C$ IN EXP_CATS
+        PRINT "  " + TOSTR(IDX) + ". " + C$
+        INCR IDX
+    NEXT C$
+    PRINT ""
+
+    INPUT "Category number (1-8): "; CNUM
+
+    TRY
+        ASSERT CNUM >= 1 AND CNUM <= 8, "Choose 1-8"
+        LET CNUM = INT(CNUM)
+        LET CNAME$ = ""
+        LET CI = 1
+        FOREACH C$ IN EXP_CATS
+            IF CI = CNUM THEN LET CNAME$ = C$
+            INCR CI
+        NEXT C$
+    CATCH E
+        PRINT "  ⚠  Invalid: using 'Other'"
+        LET CNAME$ = "Other"
+    END TRY
+
+    INPUT "Amount:      $"; AMT
+    TRY
+        ASSERT AMT > 0, "Amount must be positive"
+    CATCH E
+        PRINT "  ✗  Cancelled: " + E
+        RETURN
+    END TRY
+
+    INPUT "Description:  "; DESC$
+
+    REM Budget warning check
+    IF HASKEY(BUDGETS, CNAME$) THEN
+        GET BUDGETS, CNAME$, BUD
+        LET SPENT = CAT_TOTAL(CNAME$, "EXP")
+        LET NEWSPENT = SPENT + AMT
+        IF NEWSPENT > BUD THEN
+            PRINT ""
+            PRINT "  ⚠  BUDGET WARNING for " + CNAME$ + ":"
+            PRINTF "     Budget limit : {0}", MONEY(BUD)
+            PRINTF "     Already spent: {0}", MONEY(SPENT)
+            PRINTF "     This entry   : {0}", MONEY(AMT)
+            PRINTF "     Over budget  : {0}", MONEY(NEWSPENT - BUD)
+            PRINT ""
+            A:Continue anyway? (Y/N)
+            M:Y
+            N:
+                PRINT "  Expense cancelled."
+                RETURN
+            Y:
+        END IF
+    END IF
+
+    CALL RECORD_TX("EXP", CNAME$, AMT, DESC$)
+
+    PRINT ""
+    PRINTF "  ✓  Expense recorded: {0}  [{1}]  on {2}", MONEY(AMT), CNAME$, TODAY()
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 5 — SET BUDGETS
+REM ================================================================
+
+SUB SET_BUDGETS()
+    PRINT ""
+    PRINT REPEAT$(BAR, 52)
+    PRINT BANNER("SET MONTHLY BUDGETS", 52)
+    PRINT REPEAT$(BAR, 52)
+    PRINT ""
+    T:Set a spending limit for each category.
+    T:Press Enter with no value to leave unchanged.
+    PRINT ""
+    FOREACH C$ IN EXP_CATS
+        LET SPENT = CAT_TOTAL(C$, "EXP")
+        IF HASKEY(BUDGETS, C$) THEN
+            GET BUDGETS, C$, CURB
+            PRINTF "  {0} | current limit: {1} | spent: {2}", RPAD(C$, 13), MONEY(CURB), MONEY(SPENT)
+        ELSE
+            PRINTF "  {0} | no limit set  | spent: {1}", RPAD(C$, 13), MONEY(SPENT)
+        END IF
+        INPUT " → new limit (blank=skip): $"; BLIM
+        IF BLIM > 0 THEN
+            SET BUDGETS, C$, BLIM
+            PRINTF "     ✓ Budget set: {0}", MONEY(BLIM)
+        END IF
+        PRINT ""
+    NEXT C$
+    PRINT "  Budgets saved."
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 6 — FINANCIAL SUMMARY
+REM ================================================================
+
+SUB SHOW_SUMMARY()
+    LET INC  = TOTAL_INC()
+    LET EXP  = TOTAL_EXP()
+    LET NET  = INC - EXP
+    LET NTOT = TX_COUNT
+
+    IF INC > 0 THEN
+        LET SRATE = ROUND((NET / INC) * 100, 1)
+    ELSE
+        LET SRATE = 0
+    END IF
+
+    PRINT ""
+    PRINT REPEAT$(BAR, 58)
+    PRINT BANNER(APP_TITLE + " — SUMMARY", 58)
+    PRINT REPEAT$(BAR, 58)
+    PRINT ""
+    PRINTF "  Date / Time     : {0}  {1}", DATE$, TIME$
+    PRINTF "  Transactions    : {0}", NTOT
+    PRINT ""
+    PRINTF "  Total Income    : {0}", MONEY(INC)
+    PRINTF "  Total Expenses  : {0}", MONEY(EXP)
+    PRINT "  " + REPEAT$(LINE, 36)
+    PRINTF "  Net Balance     : {0}", MONEY(NET)
+    PRINTF "  Savings Rate    : {0}%", SRATE
+    PRINT ""
+
+    IF NET > 0 THEN
+        PRINT "  STATUS: ✓ SURPLUS — spending within means"
+    ELSEIF NET = 0 THEN
+        PRINT "  STATUS: ↔ BREAK EVEN"
+    ELSE
+        PRINT "  STATUS: ✗ DEFICIT — expenses exceed income!"
+    END IF
+
+    PRINT ""
+    PRINT REPEAT$(LINE, 58)
+    PRINT "  INCOME BREAKDOWN"
+    PRINT REPEAT$(LINE, 58)
+    FOREACH C$ IN INC_CATS
+        LET CT = CAT_TOTAL(C$, "INC")
+        IF CT > 0 THEN
+            IF INC > 0 THEN
+                LET PCT = ROUND((CT / INC) * 100, 1)
+            ELSE
+                LET PCT = 0
+            END IF
+            PRINTF "  {0}  {1}  {2}%", RPAD(C$, 13), LPAD(MONEY(CT), 11), PCT
+        END IF
+    NEXT C$
+
+    PRINT ""
+    PRINT REPEAT$(LINE, 58)
+    PRINT "  EXPENSE BREAKDOWN  (with budget status)"
+    PRINT REPEAT$(LINE, 58)
+    FOREACH C$ IN EXP_CATS
+        LET CT = CAT_TOTAL(C$, "EXP")
+        IF CT > 0 THEN
+            IF EXP > 0 THEN
+                LET PCT = ROUND((CT / EXP) * 100, 1)
+            ELSE
+                LET PCT = 0
+            END IF
+            LET ROW$ = "  " + RPAD(C$, 13) + "  " + LPAD(MONEY(CT), 11) + "  " + TOSTR(PCT) + "%"
+            IF HASKEY(BUDGETS, C$) THEN
+                GET BUDGETS, C$, BUD
+                IF CT > BUD THEN
+                    LET ROW$ = ROW$ + "  ← OVER by " + MONEY(CT - BUD)
+                ELSE
+                    LET ROW$ = ROW$ + "  [" + MONEY(BUD - CT) + " left of " + MONEY(BUD) + "]"
+                END IF
+            END IF
+            PRINT ROW$
+        END IF
+    NEXT C$
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 7 — ALL TRANSACTIONS LIST
+REM ================================================================
+
+SUB SHOW_TRANSACTIONS()
+    PRINT ""
+    PRINT REPEAT$(BAR, 72)
+    PRINTF "  ALL TRANSACTIONS ({0} total)", TX_COUNT
+    PRINT ""
+    PRINT REPEAT$(BAR, 72)
+    PRINT "  " + RPAD("TYPE", 5) + RPAD("DATE", 13) + RPAD("CATEGORY", 15) + LPAD("AMOUNT", 11) + "  DESCRIPTION"
+    PRINT "  " + REPEAT$(LINE, 68)
+
+    IF TX_COUNT = 0 THEN
+        PRINT "  (no transactions yet)"
+    ELSE
+        LET I = 0
+        FOREACH AMT IN TX_AMTS
+            PRINTF "  {0}{1}{2}{3}  {4}", RPAD(TX_TYPES[I], 5), RPAD(TX_DATES[I], 13), RPAD(TX_CATS[I], 15), LPAD(MONEY(AMT), 11), TX_DESCS[I]
+            INCR I
+        NEXT AMT
+    END IF
+    PRINT REPEAT$(BAR, 72)
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 8 — SEARCH TRANSACTIONS
+REM ================================================================
+
+SUB SEARCH_TX()
+    PRINT ""
+    PRINT REPEAT$(BAR, 52)
+    PRINT BANNER("SEARCH TRANSACTIONS", 52)
+    PRINT REPEAT$(BAR, 52)
+    PRINT ""
+    INPUT "Search term (plain text or regex): "; TERM$
+    IF TERM$ = "" THEN RETURN
+
+    PRINT ""
+    PRINT "  Results for: '" + TERM$ + "'"
+    PRINT "  " + REPEAT$(LINE, 68)
+
+    LET FOUND = 0
+    LET I = 0
+    FOREACH AMT IN TX_AMTS
+        LET ROW$ = TX_TYPES[I] + " " + TX_DATES[I] + " " + TX_CATS[I] + " " + TOSTR(AMT) + " " + TX_DESCS[I]
+        TRY
+            REGEX MATCH TERM$ IN ROW$ INTO HIT$
+            IF HIT$ <> "" THEN
+                PRINTF "  {0}{1}{2}{3}  {4}", RPAD(TX_TYPES[I], 5), RPAD(TX_DATES[I], 13), RPAD(TX_CATS[I], 15), LPAD(MONEY(AMT), 11), TX_DESCS[I]
+                INCR FOUND
+            END IF
+        CATCH E
+            REM bad regex — fall back to plain CONTAINS check
+            IF CONTAINS(ROW$, TERM$) THEN
+                PRINTF "  {0}{1}{2}{3}  {4}", RPAD(TX_TYPES[I], 5), RPAD(TX_DATES[I], 13), RPAD(TX_CATS[I], 15), LPAD(MONEY(AMT), 11), TX_DESCS[I]
+                INCR FOUND
+            END IF
+        END TRY
+        INCR I
+    NEXT AMT
+
+    PRINT ""
+    PRINTF "  {0} match(es) found.", FOUND
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 9 — STATISTICAL ANALYSIS
+REM ================================================================
+
+FUNCTION LIST_SUM(LST$)
+    REM Generic sum  — used by REDUCE
+    LET S = 0
+    FOREACH V IN LST$
+        LET S = S + V
+    NEXT V
+    RETURN S
+END FUNCTION
+
+SUB SHOW_STATS()
+    PRINT ""
+    PRINT REPEAT$(BAR, 58)
+    PRINT BANNER("STATISTICAL ANALYSIS", 58)
+    PRINT REPEAT$(BAR, 58)
+    PRINT ""
+
+    IF TX_COUNT = 0 THEN
+        PRINT "  No data yet."
+        RETURN
+    END IF
+
+    REM --- Build sub-lists for MAP/FILTER/REDUCE ---
+    LIST EXP_AMTS_ALL
+    LIST INC_AMTS_ALL
+    LET I = 0
+    FOREACH AMT IN TX_AMTS
+        IF TX_TYPES[I] = "EXP" THEN
+            PUSH EXP_AMTS_ALL, AMT
+        ELSE
+            PUSH INC_AMTS_ALL, AMT
+        END IF
+        INCR I
+    NEXT AMT
+
+    LET ECOUNT = LENGTH(EXP_AMTS_ALL)
+    LET ICOUNT = LENGTH(INC_AMTS_ALL)
+
+    REM --- REDUCE for sums ---
+    LAMBDA ADDPAIR(A, B) = A + B
+    IF ECOUNT > 0 THEN
+        REDUCE ADDPAIR ON EXP_AMTS_ALL INTO ESUM FROM 0
+        LET EMEAN = ESUM / ECOUNT
+    ELSE
+        LET ESUM = 0
+        LET EMEAN = 0
+    END IF
+    IF ICOUNT > 0 THEN
+        REDUCE ADDPAIR ON INC_AMTS_ALL INTO ISUM FROM 0
+        LET IMEAN = ISUM / ICOUNT
+    ELSE
+        LET ISUM = 0
+        LET IMEAN = 0
+    END IF
+
+    REM --- Min, Max via SORT ---
+    IF ECOUNT > 0 THEN
+        LIST ESORTED = ESUM    ' temp  — re-build properly
+        LIST ESORTED
+        FOREACH V IN EXP_AMTS_ALL
+            PUSH ESORTED, V
+        NEXT V
+        SORT ESORTED
+        LET EMIN = ESORTED[0]
+        SORT ESORTED DESC
+        LET EMAX = ESORTED[0]
+    ELSE
+        LET EMIN = 0
+        LET EMAX = 0
+    END IF
+
+    REM --- Std deviation ---
+    IF ECOUNT > 1 THEN
+        LIST DEVS
+        FOREACH V IN EXP_AMTS_ALL
+            LET D = (V - EMEAN) ^ 2
+            PUSH DEVS, D
+        NEXT V
+        REDUCE ADDPAIR ON DEVS INTO DEVSUM FROM 0
+        LET STDDEV = SQR(DEVSUM / ECOUNT)
+    ELSE
+        LET STDDEV = 0
+    END IF
+
+    REM --- MAP: apply 20% savings projection on income ---
+    LAMBDA PROJ_SAVING(X) = X * 0.20
+    MAP PROJ_SAVING ON INC_AMTS_ALL INTO SAVINGS_PROJ
+    IF ICOUNT > 0 THEN
+        REDUCE ADDPAIR ON SAVINGS_PROJ INTO IDEAL_SAVE FROM 0
+    ELSE
+        LET IDEAL_SAVE = 0
+    END IF
+
+    REM --- FILTER: large expenses (above mean * 1.5) ---
+    LET THRESH = EMEAN * 1.5
+    LAMBDA IS_LARGE(X) = X > THRESH
+    FILTER IS_LARGE ON EXP_AMTS_ALL INTO LARGE_EXPENSES
+    LET LARGE_COUNT = LENGTH(LARGE_EXPENSES)
+
+    REM --- Display ---
+    PRINT "  INCOME STATISTICS"
+    PRINT "  " + REPEAT$(LINE, 40)
+    PRINTF "  Transaction count : {0}", ICOUNT
+    PRINTF "  Total income      : {0}", MONEY(ROUND(ISUM, 2))
+    PRINTF "  Average income    : {0}", MONEY(ROUND(IMEAN, 2))
+    PRINTF "  Ideal saved (20%%) : {0}", MONEY(ROUND(IDEAL_SAVE, 2))
+    PRINT ""
+    PRINT "  EXPENSE STATISTICS"
+    PRINT "  " + REPEAT$(LINE, 40)
+    PRINTF "  Transaction count : {0}", ECOUNT
+    PRINTF "  Total expenses    : {0}", MONEY(ROUND(ESUM, 2))
+    PRINTF "  Average expense   : {0}", MONEY(ROUND(EMEAN, 2))
+    PRINTF "  Largest expense   : {0}", MONEY(EMAX)
+    PRINTF "  Smallest expense  : {0}", MONEY(EMIN)
+    PRINTF "  Std deviation     : {0}", MONEY(ROUND(STDDEV, 2))
+    PRINTF "  Large items (>{0}): {1}", MONEY(ROUND(THRESH,2)), LARGE_COUNT
+    PRINT ""
+
+    REM --- Top expense category ---
+    LET TOP_CAT$ = "None"
+    LET TOP_AMT  = 0
+    FOREACH C$ IN EXP_CATS
+        LET CT = CAT_TOTAL(C$, "EXP")
+        IF CT > TOP_AMT THEN
+            LET TOP_AMT  = CT
+            LET TOP_CAT$ = C$
+        END IF
+    NEXT C$
+    PRINTF "  Top expense category: {0} at {1}", TOP_CAT$, MONEY(ROUND(TOP_AMT, 2))
+    PRINT ""
+
+    REM --- Net vs ideal savings ---
+    LET ACTUAL_NET = ISUM - ESUM
+    PRINTF "  Actual net savings: {0}", MONEY(ROUND(ACTUAL_NET, 2))
+    PRINTF "  Target savings    : {0}  (20%% of income)", MONEY(ROUND(IDEAL_SAVE, 2))
+    IF ACTUAL_NET >= IDEAL_SAVE THEN
+        PRINT "  ✓ Meeting savings target!"
+    ELSE
+        PRINT "  ✗ Below savings target by " + MONEY(ROUND(IDEAL_SAVE - ACTUAL_NET, 2))
+    END IF
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 10 — TURTLE GRAPHICS BAR CHART
+REM ================================================================
+
+SUB DRAW_CHART()
+    PRINT ""
+    PRINT "  Drawing bar chart in the Graphics panel..."
+
+    LET ETOTAL = TOTAL_EXP()
+    IF ETOTAL = 0 THEN
+        PRINT "  No expense data to chart."
+        RETURN
+    END IF
+
+    REM Canvas setup
+    SETBACKGROUND "gray10"
+    PENUP
+    HIDETURTLE
+
+    REM Chart geometry
+    LET BW  = 56    ' bar width in pixels
+    LET GAP = 8     ' gap between bars
+    LET MH  = 220   ' max bar height
+    LET BL  = -290  ' x start (left edge)
+    LET BB  = -160  ' y bottom of bars
+
+    REM Color cycle
+    DATA "tomato", "dodger blue", "gold", "medium sea green"
+    DATA "orchid", "coral", "deep sky blue", "sandy brown"
+
+    REM Title
+    SETCOLOR "white"
+    SETPENSIZE 1
+    SETXY -200 205
+    LABEL "EXPENSES BY CATEGORY" 13
+
+    REM Y-axis
+    SETCOLOR "gray50"
+    PENDOWN
+    SETXY BL BB
+    SETXY BL 200
+    PENUP
+
+    REM X-axis
+    PENDOWN
+    SETXY BL BB
+    SETXY 300 BB
+    PENUP
+
+    REM Y-axis tick labels (0%, 25%, 50%, 75%, 100%)
+    SETCOLOR "gray70"
+    FOR TICK = 0 TO 4
+        LET TY = BB + INT(MH * TICK / 4)
+        LET TPCT = TICK * 25
+        SETXY BL - 2 TY
+        LABEL TOSTR(TPCT) + "%" 8
+        REM Horizontal grid line
+        SETPENSIZE 0.5
+        SETCOLOR "gray25"
+        PENDOWN
+        SETXY BL TY
+        SETXY 290 TY
+        PENUP
+        SETCOLOR "gray70"
+    NEXT TICK
+
+    REM Draw one bar per category
+    LET BX    = BL + GAP
+    LET CIDX  = 0
+    RESTORE
+    FOREACH C$ IN EXP_CATS
+        LET CT = CAT_TOTAL(C$, "EXP")
+        IF CT > 0 THEN
+            LET BHEIGHT = INT((CT / ETOTAL) * MH)
+            IF BHEIGHT < 4 THEN LET BHEIGHT = 4
+
+            READ BCOLOR$
+            SETCOLOR BCOLOR$
+            SETFILLCOLOR BCOLOR$
+            SETPENSIZE 1
+
+            REM Draw filled rectangle manually
+            PENUP
+            SETXY BX BB
+            PENDOWN
+            SETHEADING 90
+            FORWARD BHEIGHT
+            SETHEADING 0
+            FORWARD BW
+            SETHEADING 270
+            FORWARD BHEIGHT
+            SETHEADING 180
+            FORWARD BW
+            PENUP
+
+            REM Amount label above bar
+            SETXY BX + 2 BB + BHEIGHT + 5
+            LABEL "$" + TOSTR(INT(CT)) 8
+
+            REM Category label below axis (abbreviated)
+            SETCOLOR "white"
+            SETXY BX + 2 BB - 24
+            LABEL LEFT$(C$, 7) 8
+
+            LET BX = BX + BW + GAP
+        END IF
+        INCR CIDX
+    NEXT C$
+
+    REM Legend strip at bottom
+    SETCOLOR "white"
+    LET INC_TOTAL = TOTAL_INC()
+    SETXY -290 -200
+    LABEL "Income: $" + TOSTR(INT(INC_TOTAL)) + "   Expenses: $" + TOSTR(INT(ETOTAL)) + "   Net: $" + TOSTR(INT(INC_TOTAL - ETOTAL)) 9
+
+    PRINT "  Chart drawn. Check the Graphics panel."
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 11 — FILE I/O (SAVE / LOAD)
+REM ================================================================
+
+SUB SAVE_DATA()
+    PRINT ""
+    PRINT "  Saving to " + DATA_FILE + "..."
+    TRY
+        OPEN DATA_FILE FOR OUTPUT AS #1
+        WRITELINE #1, "Type,Date,Category,Amount,Description"
+        LET I = 0
+        FOREACH AMT IN TX_AMTS
+            LET ROW$ = TX_TYPES[I] + "," + TX_DATES[I] + "," + TX_CATS[I] + "," + TOSTR(AMT) + "," + TX_DESCS[I]
+            WRITELINE #1, ROW$
+            INCR I
+        NEXT AMT
+        CLOSE #1
+        PRINTF "  ✓  Saved {0} transactions to {1}", TX_COUNT, DATA_FILE
+    CATCH E
+        PRINT "  ✗  Save failed: " + E
+    END TRY
+    PRINT ""
+END SUB
+
+SUB LOAD_DATA()
+    PRINT ""
+    IF NOT FILEEXISTS(DATA_FILE) THEN
+        PRINT "  File not found: " + DATA_FILE
+        RETURN
+    END IF
+    PRINT "  Loading from " + DATA_FILE + "..."
+    TRY
+        LIST TX_TYPES
+        LIST TX_DATES
+        LIST TX_CATS
+        LIST TX_AMTS
+        LIST TX_DESCS
+        LET TX_COUNT = 0
+
+        OPEN DATA_FILE FOR INPUT AS #1
+        READLINE #1, HEADER$   ' skip header
+        DO
+            READLINE #1, ROW$
+            IF ROW$ = "" THEN BREAK
+            LET PARTS = SPLIT(ROW$, ",")
+            IF LENGTH(PARTS) >= 5 THEN
+                PUSH TX_TYPES, PARTS[0]
+                PUSH TX_DATES, PARTS[1]
+                PUSH TX_CATS,  PARTS[2]
+                PUSH TX_AMTS,  TONUM(PARTS[3])
+                PUSH TX_DESCS, PARTS[4]
+                INCR TX_COUNT
+            END IF
+        LOOP UNTIL EOF
+        CLOSE #1
+        PRINTF "  ✓  Loaded {0} transactions.", TX_COUNT
+    CATCH E
+        PRINT "  ✗  Load failed: " + E
+    END TRY
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 12 — LOAD DEMO DATA
+REM ================================================================
+
+SUB LOAD_DEMO()
+    PRINT "  Loading demo transactions..."
+
+    LIST TX_TYPES
+    LIST TX_DATES
+    LIST TX_CATS
+    LIST TX_AMTS
+    LIST TX_DESCS
+    LET TX_COUNT = 0
+
+    DATA "INC","2026-02-01","Salary",4800,"Monthly paycheck"
+    DATA "INC","2026-02-05","Freelance",650,"Logo design job"
+    DATA "INC","2026-02-09","Investment",185,"Dividend payout"
+    DATA "INC","2026-02-14","Gift",100,"Birthday gift"
+    DATA "EXP","2026-02-01","Housing",1350,"Rent payment"
+    DATA "EXP","2026-02-02","Utilities",112,"Electric + gas"
+    DATA "EXP","2026-02-03","Food",94.50,"Weekly groceries"
+    DATA "EXP","2026-02-04","Transport",48,"Monthly bus pass"
+    DATA "EXP","2026-02-06","Health",65,"Doctor visit"
+    DATA "EXP","2026-02-07","Food",34,"Restaurant"
+    DATA "EXP","2026-02-08","Entertainment",19.99,"Streaming sub"
+    DATA "EXP","2026-02-10","Shopping",145,"Winter jacket"
+    DATA "EXP","2026-02-11","Food",29,"Lunch x3"
+    DATA "EXP","2026-02-12","Transport",62,"Gas fill-up"
+    DATA "EXP","2026-02-13","Entertainment",55,"Concert ticket"
+    DATA "EXP","2026-02-15","Food",105,"Weekly groceries"
+    DATA "EXP","2026-02-16","Utilities",78,"Internet bill"
+    DATA "EXP","2026-02-17","Shopping",38,"Books"
+    DATA "EXP","2026-02-18","Health",22,"Vitamins"
+    DATA "EXP","2026-02-19","Food",41,"Dinner out"
+    DATA "INC","2026-02-20","Freelance",320,"Blog article"
+    DATA "EXP","2026-02-21","Entertainment",14.99,"Movie rental"
+    DATA "EXP","2026-02-22","Transport",30,"Parking"
+    DATA "EXP","2026-02-23","Health",80,"Physio session"
+    DATA "EXP","2026-02-25","Food",88,"Weekly groceries"
+
+    FOR D = 1 TO 25
+        READ DTYPE$
+        READ DDATE$
+        READ DCAT$
+        READ DAMT
+        READ DDESC$
+        PUSH TX_TYPES, DTYPE$
+        PUSH TX_DATES, DDATE$
+        PUSH TX_CATS,  DCAT$
+        PUSH TX_AMTS,  DAMT
+        PUSH TX_DESCS, DDESC$
+        INCR TX_COUNT
+    NEXT D
+
+    REM Load preset budgets
+    SET BUDGETS, "Food",          350
+    SET BUDGETS, "Transport",     150
+    SET BUDGETS, "Entertainment", 100
+    SET BUDGETS, "Shopping",      200
+    SET BUDGETS, "Health",        150
+    SET BUDGETS, "Utilities",     200
+
+    PRINTF "  ✓  {0} demo transactions loaded.", TX_COUNT
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 13 — MONTH PROJECTION (uses DO LOOP + math)
+REM ================================================================
+
+SUB SHOW_PROJECTION()
+    PRINT ""
+    PRINT REPEAT$(BAR, 58)
+    PRINT BANNER("30-DAY BUDGET PROJECTION", 58)
+    PRINT REPEAT$(BAR, 58)
+    PRINT ""
+
+    IF TX_COUNT = 0 THEN
+        PRINT "  No transactions to project from."
+        RETURN
+    END IF
+
+    LET INC  = TOTAL_INC()
+    LET EXP  = TOTAL_EXP()
+    LET DAYS = 30
+
+    IF INC = 0 AND EXP = 0 THEN
+        PRINT "  No income or expense data."
+        RETURN
+    END IF
+
+    LET DAILY_EXP = EXP / DAYS
+    LET DAILY_INC = INC / DAYS
+    LET PROJ_EXP  = DAILY_EXP * 30
+    LET PROJ_INC  = DAILY_INC * 30
+    LET PROJ_NET  = PROJ_INC - PROJ_EXP
+
+    PRINTF "  Based on {0} transactions:", TX_COUNT
+    PRINTF "  Daily income avg   : {0}", MONEY(ROUND(DAILY_INC, 2))
+    PRINTF "  Daily expense avg  : {0}", MONEY(ROUND(DAILY_EXP, 2))
+    PRINT ""
+    PRINT "  30-Day Projection:"
+    PRINTF "    Projected income  : {0}", MONEY(ROUND(PROJ_INC, 2))
+    PRINTF "    Projected expenses: {0}", MONEY(ROUND(PROJ_EXP, 2))
+    PRINTF "    Projected net     : {0}", MONEY(ROUND(PROJ_NET, 2))
+    PRINT ""
+
+    REM Cumulative running balance table via FOR loop
+    PRINT "  Running Balance (5-day intervals):"
+    PRINT "  " + REPEAT$(LINE, 40)
+    LET BALANCE = 0
+    FOR DAY = 5 TO 30 STEP 5
+        LET BALANCE = (DAILY_INC - DAILY_EXP) * DAY
+        LET BAR_W = INT(ABS(BALANCE) / 10)
+        IF BAR_W > 30 THEN LET BAR_W = 30
+        IF BALANCE >= 0 THEN
+            PRINTF "  Day {0}:  {1}  {2}", LPAD(TOSTR(DAY), 2), LPAD(MONEY(ROUND(BALANCE,2)), 12), REPEAT$("+", BAR_W)
+        ELSE
+            PRINTF "  Day {0}:  {1}  {2}", LPAD(TOSTR(DAY), 2), LPAD(MONEY(ROUND(BALANCE,2)), 12), REPEAT$("-", BAR_W)
+        END IF
+    NEXT DAY
+    PRINT ""
+
+    REM Budget category projections
+    PRINT "  Category Projected Spend (30 days):"
+    PRINT "  " + REPEAT$(LINE, 52)
+    FOREACH C$ IN EXP_CATS
+        LET CT = CAT_TOTAL(C$, "EXP")
+        IF CT > 0 THEN
+            LET PROJ = ROUND(CT / DAYS * 30, 2)
+            LET ROW$ = "  " + RPAD(C$, 13) + "  " + LPAD(MONEY(PROJ), 10)
+            IF HASKEY(BUDGETS, C$) THEN
+                GET BUDGETS, C$, BUD
+                LET PCT = ROUND(PROJ / BUD * 100, 0)
+                LET ROW$ = ROW$ + "  " + PCTBAR(PCT, 20) + "  " + TOSTR(PCT) + "% of budget"
+            END IF
+            PRINT ROW$
+        END IF
+    NEXT C$
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  SECTION 14 — QUICKADD (fast entry without menus)
+REM ================================================================
+
+SUB QUICKADD()
+    PRINT ""
+    PRINT REPEAT$(BAR, 52)
+    PRINT BANNER("QUICK TRANSACTION ENTRY", 52)
+    PRINT REPEAT$(BAR, 52)
+    T:Format: TYPE CATEGORY AMOUNT DESCRIPTION
+    T:Example: EXP Food 42.50 Weekly shop
+    T:         INC Salary 2400 Payday
+    T:(blank line to exit)
+    PRINT ""
+    DO
+        INPUT "> "; QLINE$
+        IF QLINE$ = "" THEN BREAK
+        TRY
+            REM Basic parse: first token = type, second = category,
+            REM third = amount, remainder = description
+            REGEX MATCH "^\s*(\S+)\s+(\S+)\s+([0-9]+\.?[0-9]*)\s*(.*)" IN QLINE$ INTO FULL$
+            IF FULL$ = "" THEN THROW "Use: TYPE CATEGORY AMOUNT DESCRIPTION"
+
+            REGEX FIND "^\s*(\S+)\s+(\S+)\s+([0-9]+\.?[0-9]*)\s*(.*)" IN QLINE$ INTO QM
+            REM Use SPLIT on whitespace as fallback
+            LET QTOKS = SPLIT(QLINE$, " ")
+            IF LENGTH(QTOKS) < 3 THEN THROW "Need at least 3 fields"
+
+            LET QTYPE$ = UCASE$(QTOKS[0])
+            LET QCAT$  = QTOKS[1]
+            LET QAMT   = TONUM(QTOKS[2])
+
+            IF QTYPE$ <> "INC" AND QTYPE$ <> "EXP" THEN THROW "Type must be INC or EXP"
+            IF QAMT <= 0 THEN THROW "Amount must be > 0"
+
+            REM Join remaining tokens as description
+            LET QDESC$ = ""
+            LET QI = 3
+            DO WHILE QI < LENGTH(QTOKS)
+                IF QDESC$ <> "" THEN LET QDESC$ = QDESC$ + " "
+                LET QDESC$ = QDESC$ + QTOKS[QI]
+                INCR QI
+            LOOP
+
+            CALL RECORD_TX(QTYPE$, QCAT$, QAMT, QDESC$)
+            PRINTF "  ✓  {0}  {1}  {2}  {3}", QTYPE$, QCAT$, MONEY(QAMT), QDESC$
+
+        CATCH E
+            PRINT "  ✗  Error: " + E
+        END TRY
+    LOOP UNTIL 0    ' infinite — exit via BREAK on empty line
+
+    PRINT ""
+END SUB
+
+REM ================================================================
+REM  MAIN PROGRAM ENTRY
+REM ================================================================
+
+T:
+T:╔══════════════════════════════════════════════════╗
+T:║         BUDGET TRACKER PRO                      ║
+T:║    Personal Finance Manager in TempleCode       ║
+T:║                                                  ║
+T:║  Demonstrating the full power of TempleCode:    ║
+T:║  BASIC • PILOT • Logo • Modern extensions       ║
+T:╚══════════════════════════════════════════════════╝
+T:
+PRINTF "  Started: {0}  {1}", DATE$, TIME$
+T:
+
+T:Load demo data to get started right away?
+A:Enter Y to load demo, N to start fresh
+M:Y
+Y:  CALL LOAD_DEMO()
+
+REM ================================================================
+REM  MAIN MENU LOOP
+REM ================================================================
+
+*MAIN
+PRINT ""
+PRINT REPEAT$(BAR, 42)
+PRINT "  " + APP_TITLE
+IF ANY_OVER_BUDGET() THEN
+    PRINT "  ⚠  One or more budget limits exceeded!"
+END IF
+PRINT REPEAT$(LINE, 42)
+PRINT "   1.  Add Income"
+PRINT "   2.  Add Expense"
+PRINT "   3.  Set Monthly Budgets"
+PRINT "   4.  Financial Summary"
+PRINT "   5.  All Transactions"
+PRINT "   6.  Search Transactions"
+PRINT "   7.  Statistical Analysis"
+PRINT "   8.  Draw Expense Bar Chart"
+PRINT "   9.  30-Day Projection"
+PRINT "  10.  Quick Add (fast entry)"
+PRINT "  11.  Save to File"
+PRINT "  12.  Load from File"
+PRINT "   0.  Exit"
+PRINT REPEAT$(BAR, 42)
+PRINT ""
+
+INPUT "Choice: "; MCHOICE
+
+SELECT CASE MCHOICE
+    CASE 1
+        CALL ADD_INCOME()
+        J:MAIN
+    CASE 2
+        CALL ADD_EXPENSE()
+        J:MAIN
+    CASE 3
+        CALL SET_BUDGETS()
+        J:MAIN
+    CASE 4
+        CALL SHOW_SUMMARY()
+        J:MAIN
+    CASE 5
+        CALL SHOW_TRANSACTIONS()
+        J:MAIN
+    CASE 6
+        CALL SEARCH_TX()
+        J:MAIN
+    CASE 7
+        CALL SHOW_STATS()
+        J:MAIN
+    CASE 8
+        CALL DRAW_CHART()
+        J:MAIN
+    CASE 9
+        CALL SHOW_PROJECTION()
+        J:MAIN
+    CASE 10
+        CALL QUICKADD()
+        J:MAIN
+    CASE 11
+        CALL SAVE_DATA()
+        J:MAIN
+    CASE 12
+        CALL LOAD_DATA()
+        J:MAIN
+    CASE 0
+        PRINT ""
+        T:Final balance: $NET
+        PRINTF "  Total income:   {0}", MONEY(TOTAL_INC())
+        PRINTF "  Total expenses: {0}", MONEY(TOTAL_EXP())
+        PRINTF "  Net balance:    {0}", MONEY(TOTAL_INC() - TOTAL_EXP())
+        T:
+        T:Thank you for using Budget Tracker Pro.
+        T:Goodbye!
+        END
+    CASE ELSE
+        PRINT "  Invalid choice. Enter 0-12."
+        J:MAIN
+END SELECT
+
+END

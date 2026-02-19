@@ -23,6 +23,7 @@ Features:
 import sys
 import json
 import os
+import queue as _queue
 from pathlib import Path
 
 
@@ -56,6 +57,47 @@ def save_settings(data: dict):
             json.dump(data, f, indent=2)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+#  Thread-safe output proxy
+# ---------------------------------------------------------------------------
+
+class _OutputProxy:
+    """Thread-safe stand-in for the output Text widget.
+
+    The interpreter background thread calls ``.insert()`` and ``.see()``
+    directly on this object.  Those calls only touch a ``queue.Queue``
+    (which IS thread-safe) — no tkinter Tcl calls are made from the
+    background thread.  The IDE main thread drains the queue via
+    ``_drain_output_queue()`` called by ``root.after()``.
+    """
+
+    _CLEAR = object()   # sentinel: clear the widget
+
+    def __init__(self):
+        self._q: _queue.Queue = _queue.Queue()
+
+    def insert(self, _index, text: str) -> None:   # noqa: D102
+        self._q.put(str(text))
+
+    def see(self, _index) -> None:                 # noqa: D102
+        pass   # handled by the drain loop
+
+    def delete(self, _start, _end) -> None:        # noqa: D102
+        self._q.put(self._CLEAR)
+
+    def update_idletasks(self) -> None:            # noqa: D102
+        pass   # no-op; only the main thread does real updates
+
+    def call_on_main(self, fn) -> None:
+        """Queue a callable to be executed on the main thread by the drain loop.
+
+        Use this instead of ``root.after(0, fn)`` from a background thread —
+        calling ``root.after()`` from a non-main thread touches Tcl and is
+        NOT thread-safe.
+        """
+        self._q.put(fn)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +185,7 @@ class TempleCodeApp:
         self.interpreter = None
         self._dirty = False                # unsaved‐changes flag
         self._is_running = False           # program‐execution flag
+        self._key_capture_active = False   # True while waiting for user input
 
         # Layout frames (populated in _build_layout)
         self.left_panel = None
@@ -191,8 +234,10 @@ class TempleCodeApp:
         self._build_status_bar()
         self._bind_keys()
 
-        # Initialise interpreter
-        self.interpreter = TempleCodeInterpreter(self.output_text)
+        # Initialise interpreter — use the thread-safe proxy as output_widget
+        # so the background execution thread never touches tkinter widgets.
+        self._output_proxy = _OutputProxy()
+        self.interpreter = TempleCodeInterpreter(self._output_proxy)
         self.interpreter.ide_turtle_canvas = self.turtle_canvas
         self.interpreter.input_buffer = self.input_buffer
         self.interpreter._input_entry_widget = self.input_entry
@@ -206,7 +251,7 @@ class TempleCodeApp:
         self._setup_output_tags()
 
         # Apply saved settings
-        self.output_text.insert("1.0", WELCOME_MESSAGE)
+        self._out_write(WELCOME_MESSAGE)
         self.apply_theme(self.current_theme)
         self.apply_font_size(self.current_font)
 
@@ -349,6 +394,8 @@ class TempleCodeApp:
             ("Kaleidoscope",           "examples/templecode/kaleidoscope.tc"),
             ("Snowflake Fractal",      "examples/templecode/snowflake.tc"),
             ("Clock Face",             "examples/templecode/clock.tc"),
+            None,  # separator
+            ("★ Budget Tracker Pro",   "examples/templecode/budget_tracker.tc"),
         ]:
             if item is None:
                 examples_menu.add_separator()
@@ -546,8 +593,14 @@ class TempleCodeApp:
         self.output_text = self.scrolledtext.ScrolledText(
             self.output_frame, wrap=tk.WORD, font=("Courier", 10),
             bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
+            # Keep output_text in NORMAL state always — state=DISABLED freezes
+            # Tk 9's mainloop.  We block keyboard input via a <Key> binding
+            # and keep takefocus=0 so Tab doesn't land here.
+            takefocus=0,
         )
         self.output_text.pack(fill=tk.BOTH, expand=True)
+        # Prevent the user from typing into the output pane without disabling it.
+        self.output_text.bind("<Key>", lambda e: "break")
 
         self.graphics_frame = tk.LabelFrame(
             self.right_paned, text="Turtle Graphics", padx=5, pady=5,
@@ -577,6 +630,12 @@ class TempleCodeApp:
         self.input_entry = tk.Entry(
             self.input_frame, font=("Courier", 10),
             bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
+            # Prevent the system grey (#d9d9d9) border appearing on dark themes.
+            # highlightbackground = same as entry bg → invisible when unfocused.
+            # highlightcolor = clear blue ring when focused (keyboard-ready signal).
+            highlightbackground="#1e1e1e",
+            highlightcolor="#007acc",
+            highlightthickness=2,
         )
         self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         self.input_entry.bind("<Return>", lambda e: self._submit_input())
@@ -938,13 +997,27 @@ class TempleCodeApp:
         self.output_text.tag_configure("out_warn",  foreground=theme.get("output_warn",  "#cca700"))
         self.output_text.tag_configure("out_ok",    foreground=theme.get("output_ok",    "#6a9955"))
 
+    # ------------------------------------------------------------------
+    #  Output-widget write helpers
+    # ------------------------------------------------------------------
+
+    def _out_write(self, text, tag=None):
+        """Write text to output_text."""
+        ot = self.output_text
+        if tag:
+            ot.insert(self.tk.END, text, tag)
+        else:
+            ot.insert(self.tk.END, text)
+        if not (self.interpreter and getattr(self.interpreter, '_waiting_for_input', False)):
+            ot.see(self.tk.END)
+
+    def _out_clear(self):
+        """Clear output_text."""
+        self.output_text.delete("1.0", self.tk.END)
+
     def _output(self, text, tag=None):
         """Insert text into the output widget, optionally with a colour tag."""
-        if tag:
-            self.output_text.insert(self.tk.END, text, tag)
-        else:
-            self.output_text.insert(self.tk.END, text)
-        self.output_text.see(self.tk.END)
+        self._out_write(text, tag)
 
     # ==================================================================
     #  Feature 8: Ctrl+scroll zoom
@@ -1339,7 +1412,7 @@ class TempleCodeApp:
 
     def clear_output(self):
         """Delete all text from the output panel."""
-        self.output_text.delete("1.0", self.tk.END)
+        self._out_clear()
 
     def clear_canvas(self):
         """Clear the turtle graphics canvas and reset the turtle state."""
@@ -1366,7 +1439,7 @@ class TempleCodeApp:
         import threading as _threading
 
         code = self.editor_text.get("1.0", self.tk.END)
-        self.output_text.delete("1.0", self.tk.END)
+        self._out_clear()
         self._output("🚀 Running program...\n\n", "out_ok")
         self._is_running = True
 
@@ -1387,17 +1460,96 @@ class TempleCodeApp:
         def _run():
             try:
                 self.interpreter.run_program(code, language="templecode")
-                self.root.after(0, lambda: self._output("\n✅ Program completed.\n", "out_ok"))
+                self._output_proxy.call_on_main(
+                    lambda: self._output("\n✅ Program completed.\n", "out_ok")
+                )
             except Exception as e:  # pylint: disable=broad-except
-                self.root.after(0, lambda err=e: self._output(f"\n❌ Error: {err}\n", "out_error"))
+                self._output_proxy.call_on_main(
+                    lambda err=e: self._output(f"\n❌ Error: {err}\n", "out_error")
+                )
             finally:
-                self.root.after(0, self._on_run_finished)
+                self._output_proxy.call_on_main(self._on_run_finished)
 
         _threading.Thread(target=_run, daemon=True).start()
 
     def _on_run_finished(self):
         """Called on the main thread when the interpreter thread completes."""
         self._is_running = False
+        # Safety: ensure the focus-lock is always released when the run ends,
+        # even if the thread died before clearing _waiting_for_input itself.
+        if self.interpreter:
+            self.interpreter._waiting_for_input = False
+
+    # ------------------------------------------------------------------
+    #  Output-queue drain — runs on the main thread every ~16 ms
+    # ------------------------------------------------------------------
+
+    def _drain_output_queue(self):
+        """Flush the thread-safe output proxy queue onto the real widget.
+
+        Items may be:
+        - str        → written to output_text directly (widget stays NORMAL)
+        - _CLEAR     → clear output_text
+        - callable   → executed on the main thread
+        """
+        waiting = (self.interpreter
+                   and getattr(self.interpreter, '_waiting_for_input', False))
+        ot = self.output_text
+        try:
+            while True:
+                item = self._output_proxy._q.get_nowait()
+                if item is _OutputProxy._CLEAR:
+                    self._out_clear()
+                elif callable(item):
+                    try:
+                        item()
+                    except Exception:  # pylint: disable=broad-except
+                        pass
+                else:
+                    ot.insert(self.tk.END, item)
+                    if not waiting:
+                        ot.see(self.tk.END)
+        except _queue.Empty:
+            pass
+
+        # Handle input-wait focus management.
+        if waiting:
+            # Re-assert keyboard focus on the entry widget every drain tick.
+            # focus_force() works on Wayland/XWayland within the same process,
+            # and calling it every 16 ms means even if Tk moves focus elsewhere
+            # (e.g. after widget.insert() on the output pane) it snaps right back.
+            self.input_entry.focus_force()
+            if not self._key_capture_active:
+                self._start_key_capture()
+        elif self._key_capture_active:
+            self._stop_key_capture()
+
+        self.root.after(16, self._drain_output_queue)
+
+    # ------------------------------------------------------------------
+    #  Input-wait visual feedback
+    # ------------------------------------------------------------------
+
+    def _start_key_capture(self):
+        """Mark the input entry as active (yellow) when a program waits for input."""
+        if self._key_capture_active:
+            return
+        self._key_capture_active = True
+        self.input_entry.config(bg="#ffffcc", fg="#000000")
+
+    def _stop_key_capture(self):
+        """Restore the input entry to its normal theme colours."""
+        if not self._key_capture_active:
+            return
+        self._key_capture_active = False
+        theme = self.THEMES.get(self.current_theme, self.THEMES["dark"])
+        self.input_entry.config(
+            bg=theme.get("input_bg", "#1e1e1e"),
+            fg=theme.get("input_fg", "#d4d4d4"),
+        )
+        # Return focus to the code editor.
+        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
+        text_w.focus_set()
 
     def stop_code(self):
         """Stop a running program by setting the interpreter's running flag to False."""
@@ -1511,6 +1663,11 @@ class TempleCodeApp:
         self.input_entry.config(
             bg=theme["input_bg"], fg=theme["input_fg"],
             insertbackground=theme["input_fg"],
+            # Keep the border colour matched to the entry background so the
+            # system-grey default never bleeds through on dark/high-contrast themes.
+            highlightbackground=theme["input_bg"],
+            highlightcolor="#007acc",
+            highlightthickness=2,
         )
         # Keep interpreter aware of the current input-bar bg colour
         if self.interpreter:
@@ -1797,8 +1954,7 @@ class TempleCodeApp:
 
     def run_smoke_test(self):
         """Run a quick smoke test to verify interpreter functionality."""
-        tk = self.tk
-        self.output_text.delete("1.0", tk.END)
+        self._out_clear()
         self._output("🧪 Running smoke test...\n")
         try:
             r = self.interpreter.evaluate_expression("2 + 3")
@@ -2430,6 +2586,8 @@ class TempleCodeApp:
 
     def run(self):
         """Start the Tkinter main event loop."""
+        # Kick off the recurring output-queue drain before entering the loop.
+        self.root.after(16, self._drain_output_queue)
         self.root.mainloop()
 
 

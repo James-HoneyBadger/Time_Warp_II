@@ -153,6 +153,7 @@ class TempleCodeInterpreter:
 
     def __init__(self, output_widget=None) -> None:
         self.output_widget = output_widget
+        self._main_thread = threading.current_thread()  # always created on main thread
 
         # Pre-filled input buffer (used by tests / queued input)
         self.input_buffer: list = []
@@ -194,6 +195,7 @@ class TempleCodeInterpreter:
         # Input synchronisation (set by IDE for input-bar integration)
         self._input_wait_var = None          # kept for legacy checks; use _input_event
         self._input_event: threading.Event | None = None  # signals input available
+        self._waiting_for_input: bool = False  # drain loop re-asserts Entry focus
         self._input_result: str = ""         # value written by _submit_input
         self._input_entry_widget = None      # reference to IDE's input Entry widget
         self._input_entry_bg: str = "#1e1e1e"  # original bg colour to restore
@@ -307,17 +309,36 @@ class TempleCodeInterpreter:
             ty = tg["y"]
         return cx + tx, cy - ty
 
+    def _canvas_safe(self, canvas, func_name: str, *args, **kwargs):
+        """Call a canvas method thread-safely.
+
+        If on the main thread the call is made directly (return value available).
+        From a background thread the call is queued via the output-proxy so that
+        NO tkinter/Tcl calls are made outside the main thread.
+        """
+        fn = getattr(canvas, func_name, None)
+        if fn is None:
+            return None
+        if threading.current_thread() is self._main_thread:
+            return fn(*args, **kwargs)
+        # Route through the proxy queue — drain loop executes on main thread.
+        if hasattr(self.output_widget, 'call_on_main'):
+            self.output_widget.call_on_main(lambda f=fn, a=args, kw=kwargs: f(*a, **kw))
+        return None   # ID not available asynchronously; callers must tolerate None
+
     def _draw_line(self, x1, y1, x2, y2):
         """Draw a line on the canvas and track the id."""
         canvas = self.turtle_graphics.get("canvas")
         if not canvas:
             return
-        lid = canvas.create_line(
+        lid = self._canvas_safe(
+            canvas, "create_line",
             x1, y1, x2, y2,
             fill=self.turtle_graphics["pen_color"],
             width=self.turtle_graphics["pen_size"],
         )
-        self.turtle_graphics["lines"].append(lid)
+        if lid is not None:
+            self.turtle_graphics["lines"].append(lid)
 
     # -- movement --
 
@@ -341,18 +362,13 @@ class TempleCodeInterpreter:
             sx1, sy1 = self._canvas_coords(old_x, old_y)
             sx2, sy2 = self._canvas_coords(new_x, new_y)
             self._draw_line(sx1, sy1, sx2, sy2)
-            try:
-                self.turtle_graphics["canvas"].update_idletasks()
-            except Exception:
-                pass
+            self._canvas_safe(self.turtle_graphics["canvas"], "update_idletasks")
 
         # Feature 13: turtle animation delay
         if self.turtle_delay_ms > 0:
-            try:
-                self.turtle_graphics["canvas"].after(self.turtle_delay_ms)
-                self.turtle_graphics["canvas"].update()
-            except Exception:
-                time.sleep(self.turtle_delay_ms / 1000.0)
+            # sleep on the background thread — keeps main thread free
+            time.sleep(self.turtle_delay_ms / 1000.0)
+            self._canvas_safe(self.turtle_graphics["canvas"], "update_idletasks")
 
         self.update_turtle_display()
         self.debug_output("Turtle moved")
@@ -426,7 +442,7 @@ class TempleCodeInterpreter:
             return
 
         canvas = tg["canvas"]
-        canvas.delete("turtle")
+        self._canvas_safe(canvas, "delete", "turtle")
 
         if not tg["visible"]:
             return
@@ -442,7 +458,8 @@ class TempleCodeInterpreter:
         ra = angle - math.radians(140)
         rx, ry = x + size * 0.6 * math.cos(ra), y - size * 0.6 * math.sin(ra)
 
-        canvas.create_polygon(
+        self._canvas_safe(
+            canvas, "create_polygon",
             tip_x, tip_y, lx, ly, rx, ry,
             fill="green", outline="darkgreen", width=2, tags="turtle",
         )
@@ -454,11 +471,11 @@ class TempleCodeInterpreter:
         canvas = self.turtle_graphics.get("canvas")
         if canvas:
             for lid in self.turtle_graphics["lines"]:
-                canvas.delete(lid)
+                self._canvas_safe(canvas, "delete", lid)
             self.turtle_graphics["lines"].clear()
             for sd in self.turtle_graphics.get("sprites", {}).values():
                 if sd.get("canvas_id"):
-                    canvas.delete(sd["canvas_id"])
+                    self._canvas_safe(canvas, "delete", sd["canvas_id"])
                     sd["canvas_id"] = None
                     sd["visible"] = False
             self.update_turtle_display()
@@ -471,12 +488,14 @@ class TempleCodeInterpreter:
         if not canvas or not self.turtle_graphics["pen_down"]:
             return
         cx, cy = self._canvas_coords()
-        cid = canvas.create_oval(
+        cid = self._canvas_safe(
+            canvas, "create_oval",
             cx - radius, cy - radius, cx + radius, cy + radius,
             outline=self.turtle_graphics["pen_color"],
             width=self.turtle_graphics["pen_size"],
         )
-        self.turtle_graphics["lines"].append(cid)
+        if cid is not None:
+            self.turtle_graphics["lines"].append(cid)
 
     def turtle_dot(self, size):
         """Draw a filled dot of the given size at the turtle position."""
@@ -487,12 +506,14 @@ class TempleCodeInterpreter:
             return
         cx, cy = self._canvas_coords()
         r = max(1, size // 2)
-        cid = canvas.create_oval(
+        cid = self._canvas_safe(
+            canvas, "create_oval",
             cx - r, cy - r, cx + r, cy + r,
             fill=self.turtle_graphics["pen_color"],
             outline=self.turtle_graphics["pen_color"],
         )
-        self.turtle_graphics["lines"].append(cid)
+        if cid is not None:
+            self.turtle_graphics["lines"].append(cid)
 
     def turtle_rect(self, width, height, filled=False):
         """Draw a rectangle of given dimensions at the turtle position."""
@@ -502,13 +523,15 @@ class TempleCodeInterpreter:
         if not canvas:
             return
         x, y = self._canvas_coords()
-        rid = canvas.create_rectangle(
+        rid = self._canvas_safe(
+            canvas, "create_rectangle",
             x, y, x + width, y + height,
             outline=self.turtle_graphics["pen_color"],
             fill=self.turtle_graphics.get("fill_color", "") if filled else "",
             width=self.turtle_graphics["pen_size"],
         )
-        self.turtle_graphics["lines"].append(rid)
+        if rid is not None:
+            self.turtle_graphics["lines"].append(rid)
 
     def turtle_text(self, text, size=12):
         """Draw text at the turtle position."""
@@ -518,11 +541,13 @@ class TempleCodeInterpreter:
         if not canvas:
             return
         x, y = self._canvas_coords()
-        tid = canvas.create_text(
+        tid = self._canvas_safe(
+            canvas, "create_text",
             x, y, text=text, font=("Arial", int(size)),
             fill=self.turtle_graphics["pen_color"], anchor="nw",
         )
-        self.turtle_graphics["lines"].append(tid)
+        if tid is not None:
+            self.turtle_graphics["lines"].append(tid)
 
     # ==================================================================
     #  State Management
@@ -572,7 +597,12 @@ class TempleCodeInterpreter:
     # ==================================================================
 
     def log_output(self, text, end="\n"):
-        """Write text to the output widget or stdout."""
+        """Write text to the output widget or stdout.
+
+        The output_widget is an ``_OutputProxy`` when running inside the IDE,
+        so all calls here simply enqueue data — no tkinter state is touched
+        from the background thread.
+        """
         if self.output_widget:
             try:
                 self.output_widget.insert(tk.END, str(text) + end)
@@ -856,20 +886,21 @@ class TempleCodeInterpreter:
             self._input_event = event    # _submit_input sets this
             self._input_wait_var = event # truthy sentinel for legacy checks
 
-            # Schedule GUI highlight on the main thread (thread-safe)
-            root = self.ide_turtle_canvas.winfo_toplevel()
-            if hasattr(self, '_input_entry_widget') and self._input_entry_widget:
-                widget = self._input_entry_widget
-                root.after(0, lambda: _highlight_entry(widget, "#ffffcc"))
+            # Setting this flag causes the GUI drain loop (_drain_output_queue)
+            # to call _start_key_capture(), which:
+            #   1. Turns the input entry yellow so the user sees where to type
+            #   2. Calls focus_force() to grab keyboard focus (works on Wayland)
+            #   3. Binds <KeyPress> on the root window so ALL keystrokes reach
+            #      the entry, regardless of which widget Tk thinks has focus
+            self._waiting_for_input = True
 
-            # Block THIS (interpreter) thread until submit
+            # Block THIS (interpreter) thread until the GUI calls _submit_input().
+            # The GUI drain loop watches _waiting_for_input and enables root-level
+            # key capture so the user can type regardless of OS focus state.
             event.wait()
 
-            # Restore input bar colour via main thread
-            if hasattr(self, '_input_entry_widget') and self._input_entry_widget:
-                widget = self._input_entry_widget
-                orig_bg = self._input_entry_bg or "#1e1e1e"
-                root.after(0, lambda bg=orig_bg: widget.config(bg=bg))
+            # Done waiting — GUI drain loop clears key capture automatically.
+            self._waiting_for_input = False
 
             value = self._input_result
             self._input_event = None
@@ -1068,11 +1099,9 @@ class TempleCodeInterpreter:
 
                 # Feature 12: optional per-line delay for slow execution
                 if self.exec_delay_ms > 0:
-                    try:
-                        self.ide_turtle_canvas.after(self.exec_delay_ms)
-                        self.ide_turtle_canvas.update()
-                    except Exception:
-                        time.sleep(self.exec_delay_ms / 1000.0)
+                    time.sleep(self.exec_delay_ms / 1000.0)
+                    if self.ide_turtle_canvas:
+                        self._canvas_safe(self.ide_turtle_canvas, "update_idletasks")
 
             if iterations >= max_iterations:
                 self.log_error(
