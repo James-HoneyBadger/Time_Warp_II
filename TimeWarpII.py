@@ -19,12 +19,14 @@ Features:
 - Execution / turtle speed controls, canvas export
 """
 # pylint: disable=C0301,C0103,R1705,W0621,W0718,W0404,C0415,W1510
+from __future__ import annotations
 
 import sys
 import json
 import os
 import queue as _queue
 from pathlib import Path
+from typing import Any, Callable, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +37,7 @@ SETTINGS_FILE = Path.home() / ".templecode_settings.json"
 MAX_RECENT = 10
 
 
-def load_settings():
+def load_settings() -> dict[str, Any]:
     """Load user settings from disk."""
     try:
         if SETTINGS_FILE.exists():
@@ -50,7 +52,7 @@ def load_settings():
     }
 
 
-def save_settings(data: dict):
+def save_settings(data: dict[str, Any]) -> None:
     """Persist user settings to disk."""
     try:
         with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
@@ -73,22 +75,28 @@ class _OutputProxy:
     ``_drain_output_queue()`` called by ``root.after()``.
     """
 
-    _CLEAR = object()   # sentinel: clear the widget
+    CLEAR = object()   # sentinel: clear the widget
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._q: _queue.Queue = _queue.Queue()
 
     def insert(self, _index, text: str) -> None:   # noqa: D102
+        """Insert text into the output queue."""
         self._q.put(str(text))
 
     def see(self, _index) -> None:                 # noqa: D102
-        pass   # handled by the drain loop
+        """No-op; scroll handling is done by the drain loop."""
 
     def delete(self, _start, _end) -> None:        # noqa: D102
-        self._q.put(self._CLEAR)
+        """Queue a clear-output sentinel."""
+        self._q.put(self.CLEAR)
 
     def update_idletasks(self) -> None:            # noqa: D102
-        pass   # no-op; only the main thread does real updates
+        """No-op; idle tasks are handled by the main thread."""
+
+    def get_nowait(self):
+        """Dequeue the next pending item; raises ``queue.Empty`` if none."""
+        return self._q.get_nowait()
 
     def call_on_main(self, fn) -> None:
         """Queue a callable to be executed on the main thread by the drain loop.
@@ -107,7 +115,7 @@ class _OutputProxy:
 class TempleCodeApp:
     """Main GUI application for Time Warp II."""
 
-    def __init__(self):  # type: ignore[no-untyped-def]
+    def __init__(self) -> None:  # type: ignore[no-untyped-def]
         import tkinter as tk
         from tkinter import scrolledtext, messagebox, filedialog
         from core.interpreter import TempleCodeInterpreter
@@ -136,7 +144,8 @@ class TempleCodeApp:
         self.INDENT_OPENERS = INDENT_OPENERS
 
         # GUI optimiser (optional)
-        self.gui_optimizer = None
+        self.gui_optimizer: Any = None
+        self._init_gui_optimizer: Optional[Callable[..., Any]] = None
         try:
             from core.optimizations.gui_optimizer import initialize_gui_optimizer
             self._init_gui_optimizer = initialize_gui_optimizer
@@ -169,23 +178,24 @@ class TempleCodeApp:
         self.root.geometry("1200x800")
         self.root.config(bg="#252526")
 
-        if self._init_gui_optimizer:
+        if self._init_gui_optimizer is not None:
             self.gui_optimizer = self._init_gui_optimizer(self.root)
             print("🚀 GUI optimizations enabled")
         else:
             print("ℹ️  GUI optimizations not available")
 
         # Widget refs (populated during layout)
-        self.editor_text = None
-        self.editor_text2 = None           # Feature 10: split editor
-        self.output_text = None
-        self.turtle_canvas = None
-        self.input_entry = None
-        self.input_buffer = []
+        self.editor_text: Any = None
+        self.editor_text2: Any = None      # Feature 10: split editor
+        self.output_text: Any = None
+        self.turtle_canvas: Any = None
+        self.input_entry: Any = None
+        self.input_buffer: list[str] = []
         self.interpreter = None
         self._dirty = False                # unsaved‐changes flag
         self._is_running = False           # program‐execution flag
         self._key_capture_active = False   # True while waiting for user input
+        self._undo_snapshot_after_id = None    # after() handle for debounced undo snapshot
 
         # Layout frames (populated in _build_layout)
         self.left_panel = None
@@ -200,10 +210,10 @@ class TempleCodeApp:
         self.main_paned = None
         self.right_paned = None
         self.status_bar = None              # Feature 1
-        self._status_labels = {}
+        self._status_labels: dict[str, Any] = {}
 
         # Command palette data  (Feature 6)
-        self._palette_commands = []
+        self._palette_commands: list[tuple[str, Any]] = []
 
         # Autocomplete state (Feature 5)
         self._ac_popup = None
@@ -1478,7 +1488,7 @@ class TempleCodeApp:
         # Safety: ensure the focus-lock is always released when the run ends,
         # even if the thread died before clearing _waiting_for_input itself.
         if self.interpreter:
-            self.interpreter._waiting_for_input = False
+            self.interpreter.reset_input_state()
 
     # ------------------------------------------------------------------
     #  Output-queue drain — runs on the main thread every ~16 ms
@@ -1489,16 +1499,15 @@ class TempleCodeApp:
 
         Items may be:
         - str        → written to output_text directly (widget stays NORMAL)
-        - _CLEAR     → clear output_text
+        - ``CLEAR``  → clear output_text
         - callable   → executed on the main thread
         """
-        waiting = (self.interpreter
-                   and getattr(self.interpreter, '_waiting_for_input', False))
+        waiting = bool(self.interpreter and self.interpreter.waiting_for_input)
         ot = self.output_text
         try:
             while True:
-                item = self._output_proxy._q.get_nowait()
-                if item is _OutputProxy._CLEAR:
+                item = self._output_proxy.get_nowait()
+                if item is _OutputProxy.CLEAR:
                     self._out_clear()
                 elif callable(item):
                     try:
@@ -1556,10 +1565,7 @@ class TempleCodeApp:
         if self.interpreter and self._is_running:
             self.interpreter.running = False
             # Unblock the interpreter thread if it is waiting for user input
-            if (hasattr(self.interpreter, '_input_event')
-                    and self.interpreter._input_event is not None):
-                self.interpreter._input_result = ""
-                self.interpreter._input_event.set()
+            self.interpreter.cancel_input()
             # _is_running is cleared by _on_run_finished once the thread exits
             self._output("\n🛑 Program stopped by user.\n", "out_warn")
 
@@ -1569,11 +1575,8 @@ class TempleCodeApp:
         self.input_entry.delete(0, self.tk.END)
 
         # Signal the interpreter thread waiting on threading.Event
-        if (self.interpreter
-                and hasattr(self.interpreter, '_input_event')
-                and self.interpreter._input_event is not None):
-            self.interpreter._input_result = value
-            self.interpreter._input_event.set()
+        if self.interpreter and self.interpreter.waiting_for_input:
+            self.interpreter.submit_input(value)
         else:
             # Not waiting — queue it for later use
             self.input_buffer.append(value)
@@ -2415,7 +2418,7 @@ class TempleCodeApp:
             listbox.delete(0, tk.END)
             for key in sorted(snippets.keys()):
                 s = snippets[key]
-                builtin = " (built-in)" if key in self._snippet_manager.BUILTIN_SNIPPETS and key not in self._snippet_manager._user_snippets else ""
+                builtin = " (built-in)" if key in self._snippet_manager.BUILTIN_SNIPPETS and not self._snippet_manager.is_user_snippet(key) else ""
                 listbox.insert(tk.END, f"{s.get('prefix', ''):10s}  {s.get('label', key)}{builtin}")
 
         refresh()

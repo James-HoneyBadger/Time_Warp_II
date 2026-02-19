@@ -381,6 +381,10 @@ class SnippetManager:
         """Return sorted list of all snippet keys."""
         return sorted(self.all_snippets().keys())
 
+    def is_user_snippet(self, key: str) -> bool:
+        """Return True if *key* has been overridden or added by the user."""
+        return key in self._user_snippets
+
 
 # ===================================================================
 #  5. Undo/Redo History Viewer

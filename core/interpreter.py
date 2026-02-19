@@ -15,7 +15,9 @@ TempleCode Language Features:
   From Logo:  FORWARD, BACK, LEFT, RIGHT, PENUP, PENDOWN, REPEAT,
               SETCOLOR, CIRCLE, HOME, CLEARSCREEN, TO/END procedures
 """
+from __future__ import annotations
 
+from typing import Any
 import tkinter as tk
 from tkinter import simpledialog
 import re
@@ -232,13 +234,38 @@ class TempleCodeInterpreter:
         self.imported_modules: set = set()
 
         # Watch expressions & profiler (set up by IDE or CLI)
-        self.watch_manager = None   # core.features.ide_features.WatchManager
-        self.profiler = None        # core.features.ide_features.Profiler
+        self.watch_manager: Any = None   # core.features.ide_features.WatchManager
+        self.profiler: Any = None        # core.features.ide_features.Profiler
 
         # Language executor
         self.templecode_executor = TempleCodeExecutor(self)
         self.current_language_mode = "templecode"
         self.current_language = "templecode"
+
+    # ------------------------------------------------------------------
+    #  Public input-synchronisation API (used by the IDE GUI)
+    # ------------------------------------------------------------------
+
+    @property
+    def waiting_for_input(self) -> bool:
+        """True while the interpreter is blocked inside an INPUT statement."""
+        return self._waiting_for_input
+
+    def reset_input_state(self) -> None:
+        """Force-clear the input-wait flag (called by the IDE when a run ends)."""
+        self._waiting_for_input = False
+
+    def submit_input(self, value: str) -> None:
+        """Deliver *value* to the waiting INPUT statement and unblock the thread."""
+        if self._input_event is not None:
+            self._input_result = value
+            self._input_event.set()
+
+    def cancel_input(self) -> None:
+        """Unblock a waiting INPUT statement with an empty string (e.g. on stop)."""
+        if self._input_event is not None:
+            self._input_result = ""
+            self._input_event.set()
 
     # ------------------------------------------------------------------
     #  Language mode (always TempleCode)
@@ -884,7 +911,7 @@ class TempleCodeInterpreter:
             event = threading.Event()
             self._input_result = ""
             self._input_event = event    # _submit_input sets this
-            self._input_wait_var = event # truthy sentinel for legacy checks
+            self._input_wait_var = event  # truthy sentinel for legacy checks
 
             # Setting this flag causes the GUI drain loop (_drain_output_queue)
             # to call _start_key_capture(), which:
