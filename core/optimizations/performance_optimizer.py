@@ -149,9 +149,8 @@ class PerformanceProfiler:
         """Get performance statistics."""
         with self._lock:
             stats = {}
-            for operation in self.total_times:
+            for operation, total in self.total_times.items():
                 count = self.execution_counts.get(operation, 0)
-                total = self.total_times[operation]
                 avg = total / count if count > 0 else 0
                 stats[operation] = {
                     'count': count,
@@ -234,12 +233,11 @@ class OptimizedInterpreterMixin:
     def _register_lazy_loaders(self) -> None:
         """Register lazy loading functions for heavy components."""
         # Placeholder for future lazy-loaded components
-        pass
 
     def optimized_evaluate_expression(self, expr: str) -> Any:
         """Optimized expression evaluation with caching."""
         if not self.enable_caching:
-            return self.interpreter._evaluate_expression_original(expr)
+            return self.interpreter._evaluate_expression_original(expr)  # pylint: disable=protected-access
 
         # Create cache key from expression and current variables
         try:
@@ -260,7 +258,7 @@ class OptimizedInterpreterMixin:
         if self.enable_profiling:
             self.profiler.start_operation('expression_evaluation')
 
-        result = self.interpreter._evaluate_expression_original(expr)
+        result = self.interpreter._evaluate_expression_original(expr)  # pylint: disable=protected-access
 
         if self.enable_profiling:
             self.profiler.end_operation('expression_evaluation')
@@ -276,7 +274,7 @@ class OptimizedInterpreterMixin:
         if self.enable_profiling:
             self.profiler.start_operation('line_execution')
 
-        result = self.interpreter._execute_line_original(line)
+        result = self.interpreter._execute_line_original(line)  # pylint: disable=protected-access
 
         if self.enable_profiling:
             self.profiler.end_operation('line_execution')
@@ -340,6 +338,7 @@ class OptimizedInterpreterMixin:
 
 # Global performance optimizer instance
 performance_optimizer = None
+
 
 def optimize_for_production():
     """Global production optimization function."""

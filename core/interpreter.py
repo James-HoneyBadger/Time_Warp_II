@@ -22,6 +22,7 @@ import re
 import random
 import math
 import time
+import threading
 
 # Optional PIL import
 PIL_AVAILABLE = False
@@ -38,6 +39,19 @@ except ImportError:
 
 # Import the TempleCode language executor
 from .languages import TempleCodeExecutor  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+#  Thread-safe GUI helper
+# ---------------------------------------------------------------------------
+
+def _highlight_entry(widget, color: str) -> None:
+    """Focus and recolour an Entry widget; called on the main thread via after()."""
+    try:
+        widget.focus_force()
+        widget.config(bg=color)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +192,9 @@ class TempleCodeInterpreter:
         self.turtle_delay_ms: int = 0    # delay after each turtle move (ms)
 
         # Input synchronisation (set by IDE for input-bar integration)
-        self._input_wait_var = None          # tkinter StringVar set by IDE on submit
+        self._input_wait_var = None          # kept for legacy checks; use _input_event
+        self._input_event: threading.Event | None = None  # signals input available
+        self._input_result: str = ""         # value written by _submit_input
         self._input_entry_widget = None      # reference to IDE's input Entry widget
         self._input_entry_bg: str = "#1e1e1e"  # original bg colour to restore
 
@@ -833,30 +849,30 @@ class TempleCodeInterpreter:
                 self.log_output(prompt)
             self.log_output("⌨️  Waiting for input (type below and press Submit)...")
 
-            # Use a tkinter StringVar to block until the IDE signals input
+            # Use a threading.Event so the interpreter thread blocks
+            # while the main GUI thread remains fully responsive.
+            event = threading.Event()
+            self._input_result = ""
+            self._input_event = event    # _submit_input sets this
+            self._input_wait_var = event # truthy sentinel for legacy checks
+
+            # Schedule GUI highlight on the main thread (thread-safe)
             root = self.ide_turtle_canvas.winfo_toplevel()
-            wait_var = tk.StringVar(root, value="")
-            self._input_wait_var = wait_var      # IDE's _submit_input writes here
-
-            # Highlight the input bar
             if hasattr(self, '_input_entry_widget') and self._input_entry_widget:
-                try:
-                    self._input_entry_widget.focus_set()
-                    self._input_entry_widget.config(bg="#ffffcc")
-                except Exception:
-                    pass
+                widget = self._input_entry_widget
+                root.after(0, lambda: _highlight_entry(widget, "#ffffcc"))
 
-            # Block execution until the variable changes
-            root.wait_variable(wait_var)
+            # Block THIS (interpreter) thread until submit
+            event.wait()
 
-            # Restore input bar colour
+            # Restore input bar colour via main thread
             if hasattr(self, '_input_entry_widget') and self._input_entry_widget:
-                try:
-                    self._input_entry_widget.config(bg=self._input_entry_bg or "#1e1e1e")
-                except Exception:
-                    pass
+                widget = self._input_entry_widget
+                orig_bg = self._input_entry_bg or "#1e1e1e"
+                root.after(0, lambda bg=orig_bg: widget.config(bg=bg))
 
-            value = wait_var.get()
+            value = self._input_result
+            self._input_event = None
             self._input_wait_var = None
             self.log_output(f">> {value}")
             return value

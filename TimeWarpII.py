@@ -1359,6 +1359,12 @@ class TempleCodeApp:
 
     def run_code(self):
         """Execute the current editor contents as a TempleCode program."""
+        if self._is_running:
+            self._output("⚠️  A program is already running. Stop it first.\n", "out_warn")
+            return
+
+        import threading as _threading
+
         code = self.editor_text.get("1.0", self.tk.END)
         self.output_text.delete("1.0", self.tk.END)
         self._output("🚀 Running program...\n\n", "out_ok")
@@ -1370,25 +1376,39 @@ class TempleCodeApp:
         if hasattr(self.interpreter, 'turtle_delay_ms'):
             self.interpreter.turtle_delay_ms = self.turtle_speed
 
-        try:
-            self.interpreter.ide_turtle_canvas = self.turtle_canvas
-            if self.turtle_canvas is not None:
-                self.turtle_canvas.delete("all")
-            self.interpreter.turtle_graphics = None
-            self.interpreter.init_turtle_graphics()
-            self.interpreter.clear_turtle_screen()
-            self.interpreter.run_program(code, language="templecode")
-            self._output("\n✅ Program completed.\n", "out_ok")
-        except Exception as e:
-            self._output(f"\n❌ Error: {e}\n", "out_error")
-        finally:
-            self._is_running = False
+        # One-time setup on the main thread
+        self.interpreter.ide_turtle_canvas = self.turtle_canvas
+        if self.turtle_canvas is not None:
+            self.turtle_canvas.delete("all")
+        self.interpreter.turtle_graphics = None
+        self.interpreter.init_turtle_graphics()
+        self.interpreter.clear_turtle_screen()
+
+        def _run():
+            try:
+                self.interpreter.run_program(code, language="templecode")
+                self.root.after(0, lambda: self._output("\n✅ Program completed.\n", "out_ok"))
+            except Exception as e:  # pylint: disable=broad-except
+                self.root.after(0, lambda err=e: self._output(f"\n❌ Error: {err}\n", "out_error"))
+            finally:
+                self.root.after(0, self._on_run_finished)
+
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_run_finished(self):
+        """Called on the main thread when the interpreter thread completes."""
+        self._is_running = False
 
     def stop_code(self):
         """Stop a running program by setting the interpreter's running flag to False."""
         if self.interpreter and self._is_running:
             self.interpreter.running = False
-            self._is_running = False
+            # Unblock the interpreter thread if it is waiting for user input
+            if (hasattr(self.interpreter, '_input_event')
+                    and self.interpreter._input_event is not None):
+                self.interpreter._input_result = ""
+                self.interpreter._input_event.set()
+            # _is_running is cleared by _on_run_finished once the thread exits
             self._output("\n🛑 Program stopped by user.\n", "out_warn")
 
     def _submit_input(self):
@@ -1396,13 +1416,14 @@ class TempleCodeApp:
         value = self.input_entry.get()
         self.input_entry.delete(0, self.tk.END)
 
-        # If the interpreter is blocking on input, signal it
+        # Signal the interpreter thread waiting on threading.Event
         if (self.interpreter
-                and hasattr(self.interpreter, '_input_wait_var')
-                and self.interpreter._input_wait_var is not None):  # pylint: disable=protected-access
-            self.interpreter._input_wait_var.set(value)  # pylint: disable=protected-access
+                and hasattr(self.interpreter, '_input_event')
+                and self.interpreter._input_event is not None):
+            self.interpreter._input_result = value
+            self.interpreter._input_event.set()
         else:
-            # Not waiting — just queue it for later use
+            # Not waiting — queue it for later use
             self.input_buffer.append(value)
             self._output(f">> {value}\n")
 

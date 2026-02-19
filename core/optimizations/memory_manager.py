@@ -64,7 +64,7 @@ class MemoryPool:
 class ObjectPoolManager:
     """Manager for multiple memory pools."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.pools: Dict[type, MemoryPool] = {}
         self._lock = threading.RLock()
 
@@ -100,7 +100,7 @@ class ObjectPoolManager:
 class WeakReferenceManager:
     """Manager for weak references to prevent memory leaks."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.references: Dict[str, Set[weakref.ref]] = defaultdict(set)
         self._lock = threading.RLock()
 
@@ -236,7 +236,7 @@ class MemoryMonitor:
 class ResourceManager:
     """Central resource management system."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.object_pools = ObjectPoolManager()
         self.weak_refs = WeakReferenceManager()
         self.memory_monitor = MemoryMonitor()
@@ -250,7 +250,7 @@ class ResourceManager:
 
     def cleanup_resources(self) -> Dict[str, Any]:
         """Perform comprehensive resource cleanup."""
-        results = {
+        results: Dict[str, Any] = {
             'object_pools_cleared': False,
             'dead_references_cleaned': 0,
             'garbage_collected': 0,
@@ -312,7 +312,7 @@ class ResourceManager:
             # Clear any cached bytecode
             import sys
             if hasattr(sys, '_clear_type_cache'):
-                sys._clear_type_cache()
+                sys._clear_type_cache()  # pylint: disable=protected-access
                 results['type_cache_cleared'] = True
             else:
                 results['type_cache_cleared'] = False
@@ -326,9 +326,11 @@ class ResourceManager:
 # Global resource manager instance
 resource_manager = ResourceManager()
 
+
 def get_memory_stats() -> Dict[str, Any]:
     """Get global memory statistics."""
     return resource_manager.get_resource_stats()
+
 
 def cleanup_all_resources() -> Dict[str, Any]:
     """Global resource cleanup function."""

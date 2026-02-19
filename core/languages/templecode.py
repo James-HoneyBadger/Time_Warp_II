@@ -1335,15 +1335,23 @@ class TempleCodeExecutor:
 
     @staticmethod
     def _tokenize_print(text):
-        """Split PRINT arguments on ; and , delimiters, respecting quoted strings."""
+        """Split PRINT arguments on ; and , delimiters, respecting quoted strings
+        and parenthesis depth so that f(a, b) is never split at the inner comma."""
         tokens = []
         current = []
         in_string = False
+        depth = 0
         for ch in text:
-            if ch == '"':
+            if ch == '"' and depth == 0:
                 in_string = not in_string
                 current.append(ch)
-            elif (ch == ';' or ch == ',') and not in_string:
+            elif ch in '([' and not in_string:
+                depth += 1
+                current.append(ch)
+            elif ch in ')]' and not in_string:
+                depth -= 1
+                current.append(ch)
+            elif (ch == ';' or ch == ',') and not in_string and depth == 0:
                 tokens.append(''.join(current))
                 tokens.append(ch)
                 current = []
@@ -2085,9 +2093,14 @@ class TempleCodeExecutor:
         if not expr:
             return ""
 
-        # String literal
-        if expr.startswith('"') and expr.endswith('"'):
-            return expr[1:-1]
+        # String literal — must be a single properly closed string like "hello".
+        # Reject compound expressions that start AND end with " but contain
+        # concatenation in between, e.g. "[" + TOSTR(S) + "]".
+        if expr.startswith('"') and len(expr) >= 2:
+            close_pos = expr.index('"', 1)   # position of the matching close quote
+            if close_pos == len(expr) - 1:
+                return expr[1:-1]
+            # else: opening quote closes before the end — it's a concat expression
 
         # String concatenation with +
         if '"' in expr and '+' in expr:
@@ -2244,30 +2257,37 @@ class TempleCodeExecutor:
             pos = haystack.find(needle)
             return pos + 1 if pos >= 0 else 0
 
-        # Array access
+        # Try extended expression evaluator for modern features (TOSTR, TONUM,
+        # ROUND, FORMAT$, HASKEY, LENGTH, etc.) BEFORE the generic arr_match
+        # fallback so those built-ins are never mistaken for array accesses.
+        ext_result = self._eval_basic_expression_extended(expr)
+        if ext_result is not expr:  # extended evaluator handled it
+            return ext_result
+
+        # Array access / user-defined function call: name(args)
         arr_match = re.match(r'^(\w+)\((.+)\)$', expr)
         if arr_match:
             arr_name = arr_match.group(1).upper()
             # Check if this is a user-defined function call
             if arr_name in self.interpreter.function_definitions:
                 defn = self.interpreter.function_definitions[arr_name]
-                args = [a.strip() for a in arr_match.group(2).split(",")]
+                # Use _smart_split to correctly handle nested calls like f(g(x, y), z)
+                args = [a.strip() for a in self._smart_split(arr_match.group(2), ",")]
                 if defn.get("is_lambda"):
                     return self._apply_func(arr_name, [self._eval_basic_expression(a) for a in args])
                 else:
                     self._execute_sub_or_function(arr_name, defn, args)
                     return self.interpreter.return_value if self.interpreter.return_value is not None else 0
-            idx = int(float(self.interpreter.evaluate_expression(arr_match.group(2))))
-            if arr_name in self.arrays:
-                if 0 <= idx < len(self.arrays[arr_name]):
-                    return self.arrays[arr_name][idx]
-            # Check interpreter variables
-            return self.interpreter.variables.get(f"{arr_name}({idx})", 0)
-
-        # Try extended expression evaluator for modern features
-        ext_result = self._eval_basic_expression_extended(expr)
-        if ext_result is not expr:  # extended evaluator handled it
-            return ext_result
+            # Fall back to DIM array access: ARRAY(index)
+            try:
+                idx = int(float(self.interpreter.evaluate_expression(arr_match.group(2))))
+                if arr_name in self.arrays:
+                    if 0 <= idx < len(self.arrays[arr_name]):
+                        return self.arrays[arr_name][idx]
+                # Check interpreter variables (e.g. DIM stored as "NAME(idx)")
+                return self.interpreter.variables.get(f"{arr_name}({idx})", 0)
+            except (TypeError, ValueError):
+                pass
 
         # Fall through to interpreter's evaluate_expression
         try:
@@ -3470,6 +3490,39 @@ class TempleCodeExecutor:
 
         return None
 
+    def _func_args_split(self, expr, func_name):
+        """If *expr* is a complete call to *func_name*(...), return the argument
+        list split with bracket-aware logic so nested calls like f(g(a, b), c)
+        are handled correctly.  Returns None if the expression does not match."""
+        fname_up = func_name.upper()
+        expr_up = expr.upper()
+        # Accept both NAME( and NAME$( forms by trying both
+        for candidate in (fname_up + "(", fname_up.rstrip("$") + "$("):
+            if expr_up.startswith(candidate):
+                inner_start = len(candidate)
+                break
+        else:
+            return None
+        if not expr.endswith(")"):
+            return None
+        inner = expr[inner_start:-1]
+        # Verify the slice is correct (outer paren depth stays >= 0)
+        depth = 0
+        in_str = False
+        for ch in inner:
+            if ch == '"':
+                in_str = not in_str
+            elif not in_str:
+                if ch in "([":
+                    depth += 1
+                elif ch in ")]":
+                    depth -= 1
+                    if depth < 0:
+                        return None  # extra closing paren → our slice was wrong
+        if depth != 0:
+            return None
+        return [a.strip() for a in self._smart_split(inner, ",")]
+
     # ------------------------------------------------------------------
     #  Helper: smart split respecting quotes and brackets
     # ------------------------------------------------------------------
@@ -3556,19 +3609,19 @@ class TempleCodeExecutor:
                 return list(self.interpreter.dicts[name].values())
 
         # HASKEY(dict, key)
-        m = re.match(r'HASKEY\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            name = m.group(1).upper()
-            key = self._eval_basic_expression(m.group(2).strip())
+        _args = self._func_args_split(expr, "HASKEY")
+        if _args and len(_args) == 2:
+            name = _args[0].upper()
+            key = self._eval_basic_expression(_args[1])
             if name in self.interpreter.dicts:
                 return 1 if key in self.interpreter.dicts[name] else 0
             return 0
 
         # INDEXOF(list, value)
-        m = re.match(r'INDEXOF\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            name = m.group(1).upper()
-            val = self._eval_basic_expression(m.group(2).strip())
+        _args = self._func_args_split(expr, "INDEXOF")
+        if _args and len(_args) == 2:
+            name = _args[0].upper()
+            val = self._eval_basic_expression(_args[1])
             if name in self.interpreter.lists:
                 try:
                     return self.interpreter.lists[name].index(val)
@@ -3577,47 +3630,47 @@ class TempleCodeExecutor:
             return -1
 
         # CONTAINS(list_or_string, value)
-        m = re.match(r'CONTAINS\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            name = m.group(1).upper()
-            val = self._eval_basic_expression(m.group(2).strip())
+        _args = self._func_args_split(expr, "CONTAINS")
+        if _args and len(_args) == 2:
+            name = _args[0].upper()
+            val = self._eval_basic_expression(_args[1])
             if name in self.interpreter.lists:
                 return 1 if val in self.interpreter.lists[name] else 0
             sv = str(self.interpreter.variables.get(name, ""))
             return 1 if str(val) in sv else 0
 
         # SLICE(list, start, end)
-        m = re.match(r'SLICE\((\w+)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            name = m.group(1).upper()
-            start = int(float(self._eval_basic_expression(m.group(2))))
-            end = int(float(self._eval_basic_expression(m.group(3))))
+        _args = self._func_args_split(expr, "SLICE")
+        if _args and len(_args) == 3:
+            name = _args[0].upper()
+            start = int(float(self._eval_basic_expression(_args[1])))
+            end = int(float(self._eval_basic_expression(_args[2])))
             if name in self.interpreter.lists:
                 return self.interpreter.lists[name][start:end]
             sv = str(self.interpreter.variables.get(name, ""))
             return sv[start:end]
 
         # JOIN(list, delimiter)
-        m = re.match(r'JOIN\((\w+)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            name = m.group(1).upper()
-            delim = str(self._eval_basic_expression(m.group(2).strip()))
+        _args = self._func_args_split(expr, "JOIN")
+        if _args and len(_args) == 2:
+            name = _args[0].upper()
+            delim = str(self._eval_basic_expression(_args[1]))
             if name in self.interpreter.lists:
                 return delim.join(str(x) for x in self.interpreter.lists[name])
 
         # SPLIT(string, delimiter)
-        m = re.match(r'SPLIT\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            s = str(self._eval_basic_expression(m.group(1).strip()))
-            delim = str(self._eval_basic_expression(m.group(2).strip()))
+        _args = self._func_args_split(expr, "SPLIT")
+        if _args and len(_args) == 2:
+            s = str(self._eval_basic_expression(_args[0]))
+            delim = str(self._eval_basic_expression(_args[1]))
             return s.split(delim)
 
-        # REPLACE$(string, old, new)
-        m = re.match(r'REPLACE\$?\((.+?)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            s = str(self._eval_basic_expression(m.group(1).strip()))
-            old = str(self._eval_basic_expression(m.group(2).strip()))
-            new = str(self._eval_basic_expression(m.group(3).strip()))
+        # REPLACE$(string, old, new)  — accept both REPLACE and REPLACE$
+        _args = self._func_args_split(expr, "REPLACE$") or self._func_args_split(expr, "REPLACE")
+        if _args and len(_args) == 3:
+            s = str(self._eval_basic_expression(_args[0]))
+            old = str(self._eval_basic_expression(_args[1]))
+            new = str(self._eval_basic_expression(_args[2]))
             return s.replace(old, new)
 
         # TRIM$(string)
@@ -3626,31 +3679,31 @@ class TempleCodeExecutor:
             return str(self._eval_basic_expression(m.group(1).strip())).strip()
 
         # STARTSWITH(string, prefix)
-        m = re.match(r'STARTSWITH\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            s = str(self._eval_basic_expression(m.group(1).strip()))
-            prefix = str(self._eval_basic_expression(m.group(2).strip()))
+        _args = self._func_args_split(expr, "STARTSWITH")
+        if _args and len(_args) == 2:
+            s = str(self._eval_basic_expression(_args[0]))
+            prefix = str(self._eval_basic_expression(_args[1]))
             return 1 if s.startswith(prefix) else 0
 
         # ENDSWITH(string, suffix)
-        m = re.match(r'ENDSWITH\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            s = str(self._eval_basic_expression(m.group(1).strip()))
-            suffix = str(self._eval_basic_expression(m.group(2).strip()))
+        _args = self._func_args_split(expr, "ENDSWITH")
+        if _args and len(_args) == 2:
+            s = str(self._eval_basic_expression(_args[0]))
+            suffix = str(self._eval_basic_expression(_args[1]))
             return 1 if s.endswith(suffix) else 0
 
-        # REPEAT$(string, count)
-        m = re.match(r'REPEAT\$\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            s = str(self._eval_basic_expression(m.group(1).strip()))
-            n = int(float(self._eval_basic_expression(m.group(2).strip())))
+        # REPEAT$(string, count)  — accept both REPEAT$ and REPEAT
+        _args = self._func_args_split(expr, "REPEAT$") or self._func_args_split(expr, "REPEAT")
+        if _args and len(_args) == 2:
+            s = str(self._eval_basic_expression(_args[0]))
+            n = int(float(self._eval_basic_expression(_args[1])))
             return s * n
 
-        # FORMAT$(value, format_spec)
-        m = re.match(r'FORMAT\$\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            val = self._eval_basic_expression(m.group(1).strip())
-            spec = str(self._eval_basic_expression(m.group(2).strip()))
+        # FORMAT$(value, format_spec)  — accept both FORMAT$ and FORMAT
+        _args = self._func_args_split(expr, "FORMAT$") or self._func_args_split(expr, "FORMAT")
+        if _args and len(_args) == 2:
+            val = self._eval_basic_expression(_args[0])
+            spec = str(self._eval_basic_expression(_args[1]))
             try:
                 return format(val, spec)
             except Exception:
@@ -3684,10 +3737,10 @@ class TempleCodeExecutor:
             return str(self._eval_basic_expression(m.group(1).strip()))
 
         # ROUND(value [, decimals])
-        m = re.match(r'ROUND\((.+?)(?:\s*,\s*(.+))?\)', expr, re.IGNORECASE)
-        if m:
-            val = float(self._eval_basic_expression(m.group(1).strip()))
-            decimals = int(float(self._eval_basic_expression(m.group(2).strip()))) if m.group(2) else 0
+        _args = self._func_args_split(expr, "ROUND")
+        if _args and len(_args) in (1, 2):
+            val = float(self._eval_basic_expression(_args[0]))
+            decimals = int(float(self._eval_basic_expression(_args[1]))) if len(_args) == 2 else 0
             return round(val, decimals)
 
         # FLOOR(value)
@@ -3696,33 +3749,33 @@ class TempleCodeExecutor:
             return math.floor(float(self._eval_basic_expression(m.group(1).strip())))
 
         # POWER(base, exp)
-        m = re.match(r'POWER\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            base = float(self._eval_basic_expression(m.group(1).strip()))
-            exp = float(self._eval_basic_expression(m.group(2).strip()))
+        _args = self._func_args_split(expr, "POWER")
+        if _args and len(_args) == 2:
+            base = float(self._eval_basic_expression(_args[0]))
+            exp = float(self._eval_basic_expression(_args[1]))
             return base ** exp
 
         # CLAMP(value, min, max)
-        m = re.match(r'CLAMP\((.+?)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            val = float(self._eval_basic_expression(m.group(1).strip()))
-            lo = float(self._eval_basic_expression(m.group(2).strip()))
-            hi = float(self._eval_basic_expression(m.group(3).strip()))
+        _args = self._func_args_split(expr, "CLAMP")
+        if _args and len(_args) == 3:
+            val = float(self._eval_basic_expression(_args[0]))
+            lo = float(self._eval_basic_expression(_args[1]))
+            hi = float(self._eval_basic_expression(_args[2]))
             return max(lo, min(hi, val))
 
         # LERP(a, b, t) — linear interpolation
-        m = re.match(r'LERP\((.+?)\s*,\s*(.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            a = float(self._eval_basic_expression(m.group(1).strip()))
-            b = float(self._eval_basic_expression(m.group(2).strip()))
-            t = float(self._eval_basic_expression(m.group(3).strip()))
+        _args = self._func_args_split(expr, "LERP")
+        if _args and len(_args) == 3:
+            a = float(self._eval_basic_expression(_args[0]))
+            b = float(self._eval_basic_expression(_args[1]))
+            t = float(self._eval_basic_expression(_args[2]))
             return a + (b - a) * t
 
         # RANDOM(min, max)
-        m = re.match(r'RANDOM\((.+?)\s*,\s*(.+)\)', expr, re.IGNORECASE)
-        if m:
-            lo = int(float(self._eval_basic_expression(m.group(1).strip())))
-            hi = int(float(self._eval_basic_expression(m.group(2).strip())))
+        _args = self._func_args_split(expr, "RANDOM")
+        if _args and len(_args) == 2:
+            lo = int(float(self._eval_basic_expression(_args[0])))
+            hi = int(float(self._eval_basic_expression(_args[1])))
             return random.randint(lo, hi)
 
         # PI, E constants
