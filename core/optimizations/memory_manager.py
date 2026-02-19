@@ -14,7 +14,6 @@ import weakref
 import threading
 from typing import Dict, List, Any, Optional, Set, Callable
 from collections import defaultdict
-import sys
 
 
 class MemoryPool:

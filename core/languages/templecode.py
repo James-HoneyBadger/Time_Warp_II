@@ -2909,7 +2909,8 @@ class TempleCodeExecutor:
                 if cm:
                     self.interpreter.variables[cm.group(1).upper()] = error_msg
                 self.interpreter.variables["ERROR$"] = error_msg
-                self.interpreter.current_line = catch_line
+                # Jump to the line AFTER "CATCH" so the body executes
+                self.interpreter.current_line = catch_line + 1
                 return "jump"
             else:
                 self.interpreter.try_stack.pop()

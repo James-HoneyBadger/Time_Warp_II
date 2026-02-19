@@ -893,7 +893,7 @@ class TempleCodeInterpreter:
             if self.try_stack:
                 frame = self.try_stack[-1]
                 catch_line = frame.get("catch_line")
-                if catch_line:
+                if catch_line is not None:
                     self.last_error = str(e)
                     self.variables["ERROR$"] = str(e)
                     # Extract variable from CATCH line
@@ -901,7 +901,8 @@ class TempleCodeInterpreter:
                     cm = re.match(r'CATCH\s+(\w+)', catch_cmd.strip(), re.IGNORECASE)
                     if cm:
                         self.variables[cm.group(1).upper()] = str(e)
-                    self.current_line = catch_line
+                    # Jump to the line AFTER "CATCH" so the body executes
+                    self.current_line = catch_line + 1
                     return "jump"
             self.log_error(f"Execution error in line {line_num or self.current_line}: {e}", line_num)
             return "error"

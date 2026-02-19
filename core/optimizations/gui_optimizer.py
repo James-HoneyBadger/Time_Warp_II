@@ -15,7 +15,6 @@ import time
 from typing import Callable, Any, Optional, Dict, List
 from functools import partial
 import tkinter as tk
-from tkinter import ttk
 
 
 class UIThreadManager:

@@ -10,7 +10,6 @@ This module provides various performance enhancements including:
 """
 
 import time
-from functools import lru_cache
 from typing import Dict, Any, Optional, Callable
 import threading
 import gc
