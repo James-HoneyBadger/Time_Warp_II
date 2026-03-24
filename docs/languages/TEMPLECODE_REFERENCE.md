@@ -142,6 +142,15 @@ RETRACT "parent(john, mary)"
 FACTS
 ```
 
+### Turbo BASIC-style commands
+```basic
+LOAD "data.txt", CONTENT
+SAVE "output.txt", "hello"
+CHAIN "startup.tc", PROGRAM
+PAUSE 500
+PRINT INKEY()
+```
+
 ### SELECT CASE
 ```basic
 SELECT CASE grade

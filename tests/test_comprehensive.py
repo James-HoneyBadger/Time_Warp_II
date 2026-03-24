@@ -1195,6 +1195,25 @@ class TestBasicExtended:
         assert "parent(mary, susan)" in out.program_lines
         assert "parent(john, mary)" not in out.program_lines
 
+    def test_turbo_basic_load_save_chain(self):
+        import os
+        testfile = "temp_turbo_basic_test.txt"
+        try:
+            code = (
+                f'SAVE "{testfile}", "abc"\n'
+                f'LOAD "{testfile}", R\n'
+                'PRINT R'
+            )
+            out = run_program(code)
+            assert out.last_line == "abc"
+        finally:
+            if os.path.exists(testfile):
+                os.remove(testfile)
+
+    def test_turbo_basic_pause_inkey(self):
+        out = run_program('PAUSE 50\nINKEY')
+        assert "0" in out.raw
+
     def test_select_case_string(self):
         code = "LET A = 1\nLET B = 2\nSWAP A, B\nPRINT A\nPRINT B"
         out = run_program(code)

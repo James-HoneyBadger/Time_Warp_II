@@ -1309,6 +1309,16 @@ class TempleCodeExecutor:
             return self._basic_write(command)
         elif cmd == "READLN":
             return self._basic_readln(command)
+        elif cmd == "LOAD":
+            return self._basic_load(command)
+        elif cmd == "SAVE":
+            return self._basic_save(command)
+        elif cmd == "CHAIN":
+            return self._basic_chain(command)
+        elif cmd == "PAUSE":
+            return self._basic_pause(command)
+        elif cmd == "INKEY":
+            return self._basic_inkey()
         elif cmd == "INC":
             return self._basic_incr_decr(command, 1)
         elif cmd == "DEC":
@@ -1529,6 +1539,7 @@ class TempleCodeExecutor:
             "PILOT: T:, A:, M:, Y:, N:, J:, C:, G:, S:, D:, P:, X:",
             "Turbo Pascal aliases: WRITE, WRITELN, READLN, INC, DEC, PARAMCOUNT, PARAMSTR, SQUARE, ROUND, TRUNC (SQR/SQRT legacy)",
             "Turbo Prolog aliases: ASSERTA, ASSERTZ, RETRACT, QUERY, FACTS",
+            "Turbo BASIC aliases: LOAD, SAVE, CHAIN, PAUSE, INKEY",
             "Use HELP to show this message again.",
         ]
         for line in lines:
@@ -2290,8 +2301,6 @@ class TempleCodeExecutor:
         Reached when a preceding IF/ELSEIF block was executed, so we
         need to skip ahead to END IF (same logic as ELSE).
         """
-        # If we reach here normally, the prior IF/ELSEIF was true –
-        # skip to END IF.
         depth = 1
         self.interpreter.current_line += 1
         while self.interpreter.current_line < len(self.interpreter.program_lines):
@@ -2304,6 +2313,46 @@ class TempleCodeExecutor:
                 if depth == 0:
                     return "continue"
             self.interpreter.current_line += 1
+        return "continue"
+
+    def _basic_inkey(self):
+        """INKEY — Returns 1 if key available, otherwise 0."""
+        # Simplified: interactive key buffering not implemented in this headless variant.
+        self.interpreter.log_output("0")
+        return "continue"
+
+    def _basic_pause(self, command):
+        """PAUSE n — hold execution for n milliseconds."""
+        text = re.sub(r'^PAUSE\s+', '', command, flags=re.IGNORECASE).strip()
+        try:
+            ms = int(float(self._eval_basic_expression(text)))
+            time.sleep(ms / 1000.0)
+        except Exception:
+            pass
+        return "continue"
+
+    def _basic_load(self, command):
+        """LOAD \"file\", var -- alias for READFILE"""
+        text = re.sub(r'^LOAD\s+', '', command, flags=re.IGNORECASE).strip()
+        if text.upper().startswith('"') and '"' in text[1:]:
+            # keep existing load syntax: LOAD "f", var
+            return self._modern_readfile('READFILE ' + text)
+        return self._modern_readfile('READFILE ' + text)
+
+    def _basic_save(self, command):
+        """SAVE \"file\", expression -- alias for WRITEFILE"""
+        text = re.sub(r'^SAVE\s+', '', command, flags=re.IGNORECASE).strip()
+        return self._modern_writefile('WRITEFILE ' + text)
+
+    def _basic_chain(self, command):
+        """CHAIN filename -- load and run a file (simple alias to LOAD)."""
+        text = re.sub(r'^CHAIN\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = text.split(',', 1)
+        if len(parts) == 2:
+            file_part = parts[0].strip()
+            var_part = parts[1].strip()
+            return self._modern_readfile(f'READFILE {file_part}, {var_part}')
+        self.interpreter.log_output('CHAIN syntax: CHAIN "file", var')
         return "continue"
 
     def _basic_on(self, command):
