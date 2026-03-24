@@ -1154,7 +1154,48 @@ class TestBasicExtended:
         code = "LET X = 10\nDECR X, 4\nPRINT X"
         assert run_program(code).last_line == "6"
 
-    def test_swap_values(self):
+    def test_pascal_inc_alias(self):
+        code = "LET X = 5\nINC X\nPRINT X"
+        assert run_program(code).last_line == "6"
+
+    def test_pascal_dec_alias(self):
+        code = "LET X = 10\nDEC X\nPRINT X"
+        assert run_program(code).last_line == "9"
+
+    def test_pascal_write_writeln_readln(self):
+        code = "\n".join([
+            "WRITE 1",
+            "WRITE 2",
+            "WRITELN 3",
+            "READLN X",
+            "PRINT X",
+        ])
+        out = run_program(code, input_buffer=["42"])
+        assert "123" in out.program_lines
+        assert out.program_lines[-1] == "42"
+
+    def test_pascal_math_functions(self):
+        code = "PRINT SQUARE(4)\nPRINT ROUND(3.7)\nPRINT TRUNC(3.7)"
+        out = run_program(code)
+        assert out.program_lines[-3:] == ["16", "4", "3"]
+
+    def test_turbo_prolog_fact_base(self):
+        code = "\n".join([
+            "ASSERTZ parent(john, mary)",
+            "ASSERTA parent(mary, susan)",
+            "QUERY parent(john, mary)",
+            "RETRACT parent(john, mary)",
+            "QUERY parent(john, mary)",
+            "FACTS",
+        ])
+        out = run_program(code)
+        # After asserta, first fact has mary->susan, then john->mary
+        assert "TRUE" in out.program_lines
+        assert "FALSE" in out.program_lines
+        assert "parent(mary, susan)" in out.program_lines
+        assert "parent(john, mary)" not in out.program_lines
+
+    def test_select_case_string(self):
         code = "LET A = 1\nLET B = 2\nSWAP A, B\nPRINT A\nPRINT B"
         out = run_program(code)
         lines = out.program_lines

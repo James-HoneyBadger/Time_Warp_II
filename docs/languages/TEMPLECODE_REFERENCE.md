@@ -118,6 +118,30 @@ DO
 LOOP UNTIL x >= 100
 ```
 
+### Turbo Pascal-style commands
+```basic
+WRITE "Progress: "
+WRITELN "Done"
+LET x = 5
+INC x
+DEC x
+PRINT SQR(x)
+PRINT ROUND(3.7)
+PRINT TRUNC(3.7)
+PRINT PARAMCOUNT()
+PRINT PARAMSTR(1)
+READLN x
+```
+
+### Turbo Prolog-style commands
+```basic
+ASSERTZ "parent(john, mary)"
+ASSERTA "parent(mary, susan)"
+QUERY "parent(john, mary)"   // TRUE
+RETRACT "parent(john, mary)"
+FACTS
+```
+
 ### SELECT CASE
 ```basic
 SELECT CASE grade

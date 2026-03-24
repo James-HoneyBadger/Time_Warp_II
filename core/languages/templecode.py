@@ -61,6 +61,9 @@ class TempleCodeExecutor:
         # Logo state – procedures defined with TO ... END
         self.logo_procedures = {}
 
+        # Turbo Prolog-style knowledge base (simple fact storage)
+        self.prolog_facts = []
+
     # ------------------------------------------------------------------
     #  Top-level dispatch
     # ------------------------------------------------------------------
@@ -1300,6 +1303,28 @@ class TempleCodeExecutor:
         elif cmd == "COLOR" or cmd == "COLOUR":
             # Turtle color change, for BASIC-style usage
             return self._logo_setcolor(command.split())
+        elif cmd == "WRITELN":
+            return self._basic_writeln(command)
+        elif cmd == "WRITE":
+            return self._basic_write(command)
+        elif cmd == "READLN":
+            return self._basic_readln(command)
+        elif cmd == "INC":
+            return self._basic_incr_decr(command, 1)
+        elif cmd == "DEC":
+            return self._basic_incr_decr(command, -1)
+        elif cmd == "PARAMCOUNT":
+            return self._turbo_pascal_paramcount()
+        elif cmd == "PARAMSTR":
+            return self._turbo_pascal_paramstr(command)
+        elif cmd == "ASSERTA" or cmd == "ASSERTZ":
+            return self._prolog_assert(cmd, command)
+        elif cmd == "RETRACT":
+            return self._prolog_retract(command)
+        elif cmd == "QUERY":
+            return self._prolog_query(command)
+        elif cmd == "FACTS":
+            return self._prolog_facts()
         elif cmd == "ENDIF":
             return "continue"  # Block IF closing — alias for END IF
         elif cmd == "ELSEIF":
@@ -1502,6 +1527,8 @@ class TempleCodeExecutor:
             "File I/O: OPEN, CLOSE, READLINE, WRITELINE, READFILE, WRITEFILE, APPENDFILE",
             "Logo: FORWARD/FD, BACK/BK, LEFT/LT, RIGHT/RT, PENUP/PU, PENDOWN/PD, CIRCLE, CIRCLEFILL, RECT, RECTANGLE, RECTFILL, PSET, PRESET, POINT, SCREEN, SETCOLOR, CLEARSCREEN",
             "PILOT: T:, A:, M:, Y:, N:, J:, C:, G:, S:, D:, P:, X:",
+            "Turbo Pascal aliases: WRITE, WRITELN, READLN, INC, DEC, PARAMCOUNT, PARAMSTR, SQUARE, ROUND, TRUNC (SQR/SQRT legacy)",
+            "Turbo Prolog aliases: ASSERTA, ASSERTZ, RETRACT, QUERY, FACTS",
             "Use HELP to show this message again.",
         ]
         for line in lines:
@@ -2152,7 +2179,7 @@ class TempleCodeExecutor:
 
     def _basic_incr_decr(self, command, direction):
         """INCR var [, amount]  or  DECR var [, amount]"""
-        text = re.sub(r'^(INCR|DECR)\s+', '', command, flags=re.IGNORECASE).strip()
+        text = re.sub(r'^(INCR|DECR|INC|DEC)\s+', '', command, flags=re.IGNORECASE).strip()
         parts = [p.strip() for p in text.split(",")]
         var_name = parts[0].upper()
         amount = 1
@@ -2164,6 +2191,81 @@ class TempleCodeExecutor:
         current = float(self.interpreter.variables.get(var_name, 0))
         new_val = current + (amount * direction)
         self.interpreter.variables[var_name] = int(new_val) if new_val == int(new_val) else new_val
+        return "continue"
+
+    # --- Turbo Pascal-style aliases ---
+
+    def _basic_writeln(self, command):
+        """WRITELN [expr]"""
+        text = re.sub(r'^WRITELN\s*', '', command, flags=re.IGNORECASE).strip()
+        if not text:
+            self.interpreter.log_output("")
+            return "continue"
+        return self._basic_print("PRINT " + text)
+
+    def _basic_write(self, command):
+        """WRITE [expr]"""
+        text = re.sub(r'^WRITE\s*', '', command, flags=re.IGNORECASE).strip()
+        if not text:
+            return self._basic_print("PRINT ;")
+        tail = text if text.endswith(";") else text + ";"
+        return self._basic_print("PRINT " + tail)
+
+    def _basic_readln(self, command):
+        """READLN var"""
+        tail = re.sub(r'^READLN\s*', '', command, flags=re.IGNORECASE).strip()
+        return self._basic_input("INPUT " + tail)
+
+    def _turbo_pascal_paramcount(self):
+        count = max(len(sys.argv) - 1, 0)
+        self.interpreter.log_output(str(count))
+        return "continue"
+
+    def _turbo_pascal_paramstr(self, command):
+        text = re.sub(r'^PARAMSTR\s*', '', command, flags=re.IGNORECASE).strip()
+        if text.startswith("(") and text.endswith(")"):
+            text = text[1:-1].strip()
+        idx = 0
+        try:
+            idx = int(float(self.interpreter.evaluate_expression(text)))
+        except Exception:
+            idx = 0
+        value = sys.argv[idx] if 0 <= idx < len(sys.argv) else ""
+        self.interpreter.log_output(str(value))
+        return "continue"
+
+    def _prolog_assert(self, cmd, command):
+        term = re.sub(r'^(ASSERTA|ASSERTZ)\s*', '', command, flags=re.IGNORECASE).strip()
+        if not term:
+            self.interpreter.log_output("Syntax: ASSERTA/ASSERTZ <fact>")
+            return "continue"
+        if cmd == "ASSERTA":
+            self.prolog_facts.insert(0, term)
+        else:
+            self.prolog_facts.append(term)
+        return "continue"
+
+    def _prolog_retract(self, command):
+        term = re.sub(r'^RETRACT\s*', '', command, flags=re.IGNORECASE).strip()
+        if term in self.prolog_facts:
+            self.prolog_facts.remove(term)
+            self.interpreter.log_output("TRUE")
+        else:
+            self.interpreter.log_output("FALSE")
+        return "continue"
+
+    def _prolog_query(self, command):
+        term = re.sub(r'^QUERY\s*', '', command, flags=re.IGNORECASE).strip()
+        result = "TRUE" if term in self.prolog_facts else "FALSE"
+        self.interpreter.log_output(result)
+        return "continue"
+
+    def _prolog_facts(self):
+        if not self.prolog_facts:
+            self.interpreter.log_output("(no facts)")
+        else:
+            for fact in self.prolog_facts:
+                self.interpreter.log_output(fact)
         return "continue"
 
     # --- BASIC math/string functions (as statements) ---
@@ -2340,6 +2442,10 @@ class TempleCodeExecutor:
             # are returned correctly rather than falling through to a constant.
             if var_name in self.interpreter.variables:
                 return self.interpreter.variables[var_name]
+            if hasattr(self.interpreter, 'lists') and var_name in self.interpreter.lists:
+                return self.interpreter.lists[var_name]
+            if hasattr(self.interpreter, 'dicts') and var_name in self.interpreter.dicts:
+                return self.interpreter.dicts[var_name]
             # Mathematical constants (only when not shadowed by a user variable)
             if var_name == "PI":
                 return math.pi
@@ -2452,10 +2558,20 @@ class TempleCodeExecutor:
             v = abs(float(self._eval_basic_expression(abs_match.group(1))))
             return int(v) if v == int(v) else v
 
-        # SQRT function
-        sqrt_match = re.match(r'^SQRT?\((.+)\)$', upper_expr)
+        # SQR (legacy) and SQRT functions
+        sqr_match = re.match(r'^SQR\((.+)\)$', upper_expr)
+        if sqr_match:
+            return math.sqrt(float(self._eval_basic_expression(sqr_match.group(1))))
+
+        sqrt_match = re.match(r'^SQRT\((.+)\)$', upper_expr)
         if sqrt_match:
             return math.sqrt(float(self._eval_basic_expression(sqrt_match.group(1))))
+
+        # Turbo Pascal style square function
+        square_match = re.match(r'^SQUARE\((.+)\)$', upper_expr)
+        if square_match:
+            val = float(self._eval_basic_expression(square_match.group(1)))
+            return int(val * val) if val * val == int(val * val) else val * val
 
         # Trig functions
         for fn, func in [("SIN", math.sin), ("COS", math.cos), ("TAN", math.tan), ("ATN", math.atan), ("ATAN", math.atan)]:
@@ -4102,6 +4218,26 @@ class TempleCodeExecutor:
             if isinstance(val, list):
                 return len(val)
             return len(str(val))
+
+        # ROUND(value, ndigits?)
+        _args = self._func_args_split(expr, "ROUND")
+        if _args and len(_args) in (1, 2):
+            try:
+                val = float(self._eval_basic_expression(_args[0]))
+                n = int(self._eval_basic_expression(_args[1])) if len(_args) == 2 else 0
+                result = round(val, n)
+                return int(result) if isinstance(result, float) and result == int(result) else result
+            except Exception:
+                return 0
+
+        # TRUNC(value)
+        _args = self._func_args_split(expr, "TRUNC")
+        if _args and len(_args) == 1:
+            try:
+                val = float(self._eval_basic_expression(_args[0]))
+                return math.trunc(val)
+            except Exception:
+                return 0
 
         # KEYS(dict) / VALUES(dict)
         m = re.match(r'KEYS\((\w+)\)', expr, re.IGNORECASE)
