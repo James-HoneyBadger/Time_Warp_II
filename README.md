@@ -18,6 +18,7 @@ A single unified language drawing from three classic educational languages:
 - **BASIC heritage** — `PRINT`, `LET`, `IF/THEN`, `FOR/NEXT`, `GOTO`, `GOSUB/RETURN`, `DIM`, `INPUT`, `REM`, `END`, optional line numbers
 - **PILOT heritage** — `T:` (type), `A:` (accept), `M:` (match), `Y:` / `N:` (conditional), `J:` (jump), `C:` (compute), `E:` (end), `*label` labels
 - **Logo heritage** — `FORWARD`/`FD`, `BACK`/`BK`, `LEFT`/`LT`, `RIGHT`/`RT`, `PENUP`/`PU`, `PENDOWN`/`PD`, `REPEAT [...]`, `SETCOLOR`, `CIRCLE`, `HOME`, `TO procname ... END` procedures
+- **Chipmunk BASIC extensions** — direct pixel operations (`PSET`, `PRESET`, `POINT`), filled shapes (`CIRCLEFILL`, `RECTFILL`), and sound control (`BEEP`, `PLAYNOTE`, `SOUND`)
 
 All three styles can be freely mixed in a single program.
 

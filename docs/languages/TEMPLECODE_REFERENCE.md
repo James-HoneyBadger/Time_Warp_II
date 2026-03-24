@@ -191,6 +191,9 @@ NEXT item
 | `SLEEP n` | Pause for n seconds |
 | `TAB n` | Move to column n |
 | `SPC n` | Print n spaces |
+| `UNSET var` | Remove variable/list/dict from scope |
+| `EVAL expr [AS var]` | Evaluate an expression dynamically |
+| `PROGRAMINFO` | Print runtime program info (lines, variables, arrays, dicts) |
 | `REM` / `'` | Comment |
 | `END` | End program execution |
 | `STOP` | Stop program execution |
@@ -274,6 +277,7 @@ J:start
 | Command | Description |
 |---------|-------------|
 | `CIRCLE r` | Draw circle with radius r |
+| `CIRCLEFILL r` | Draw filled circle with radius r |
 | `ARC angle [radius]` | Draw an arc |
 | `DOT [size]` | Draw a dot |
 | `SQUARE side` | Draw a square |
@@ -281,6 +285,11 @@ J:start
 | `POLYGON sides length` | Draw regular polygon |
 | `STAR points length` | Draw a star |
 | `RECT width [height]` | Draw rectangle |
+| `RECTANGLE width [height]` | Alias for RECT |
+| `RECTFILL width [height]` | Draw filled rectangle |
+| `PSET x,y` | Set pixel at coordinates to pen color |
+| `PRESET x,y` | Reset pixel at coordinates to background color |
+| `POINT x,y` | Returns 1 if point is on screen, else 0 |
 | `LABEL "text" [size]` | Draw text at turtle position |
 
 ### REPEAT

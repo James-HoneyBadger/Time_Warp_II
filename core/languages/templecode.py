@@ -21,10 +21,16 @@ Design Philosophy:
   graphics interchangeably. The interpreter auto-detects which sub-system
   handles each line, giving learners a smooth multi-paradigm experience.
 
+Extended from Chipmunk BASIC:
+  - Pixel ops: PSET, PRESET, POINT
+  - Filled shapes: CIRCLEFILL, RECTFILL
+  - Sound: BEEP, PLAYNOTE, SOUND
+
 File Extension: .tc
 """
 
 import re
+import sys
 import math
 import random
 import time
@@ -101,9 +107,10 @@ class TempleCodeExecutor:
             "SETBACKGROUND", "SETBG",
             "SETSCREENCOLOR", "SETSCREENCOLOUR",
             "SETHEADING", "SETH",
-            "CIRCLE", "ARC", "DOT",
+            "PSET", "PRESET", "POINT", "SCREEN",
+            "CIRCLE", "CIRCLEFILL", "ARC", "DOT",
             "SQUARE", "TRIANGLE", "POLYGON", "STAR",
-            "RECT", "RECTANGLE", "FILL", "FILLED",
+            "RECT", "RECTANGLE", "RECTFILL", "FILL", "FILLED",
             "TOWARDS",
             "REPEAT",
             "MAKE",
@@ -400,12 +407,16 @@ class TempleCodeExecutor:
         # Drawing shapes
         elif cmd == "CIRCLE":
             return self._logo_circle(parts)
+        elif cmd == "CIRCLEFILL":
+            return self._logo_circlefill(parts)
         elif cmd == "ARC":
             return self._logo_arc(parts)
         elif cmd == "DOT":
             return self._logo_dot(parts)
         elif cmd in ("RECT", "RECTANGLE"):
             return self._logo_rect(parts)
+        elif cmd == "RECTFILL":
+            return self._logo_rectfill(parts)
         elif cmd == "SQUARE":
             return self._logo_square(parts)
         elif cmd == "TRIANGLE":
@@ -484,6 +495,14 @@ class TempleCodeExecutor:
             if tg:
                 tg["boundary_mode"] = "fence"
             return "continue"
+        elif cmd == "PSET":
+            return self._logo_pset(parts)
+        elif cmd == "PRESET":
+            return self._logo_preset(parts)
+        elif cmd == "POINT":
+            return self._logo_point(parts)
+        elif cmd == "SCREEN":
+            return self._logo_screen(parts)
 
         else:
             self.interpreter.log_output(f"Unknown Logo command: {cmd}")
@@ -758,6 +777,21 @@ class TempleCodeExecutor:
             )
         return "continue"
 
+    def _logo_circlefill(self, parts):
+        self._ensure_turtle()
+        radius = self._eval_logo_arg(parts)
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            cx = tg["center_x"] + tg["x"]
+            cy = tg["center_y"] - tg["y"]
+            r = abs(radius)
+            fill = tg.get("fill_color") or tg.get("pen_color")
+            tg["canvas"].create_oval(
+                cx - r, cy - r, cx + r, cy + r,
+                outline=tg["pen_color"], width=tg["pen_size"], fill=fill
+            )
+        return "continue"
+
     def _logo_arc(self, parts):
         self._ensure_turtle()
         angle = self._eval_logo_arg(parts, 1)
@@ -789,6 +823,49 @@ class TempleCodeExecutor:
             )
         return "continue"
 
+    def _logo_pset(self, parts):
+        self._ensure_turtle()
+        x = self._eval_logo_arg(parts, 1)
+        y = self._eval_logo_arg(parts, 2)
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            px, py = self.interpreter._canvas_coords(x, y)
+            tg["canvas"].create_rectangle(px, py, px+1, py+1, fill=tg["pen_color"], outline=tg["pen_color"])
+        return "continue"
+
+    def _logo_preset(self, parts):
+        self._ensure_turtle()
+        x = self._eval_logo_arg(parts, 1)
+        y = self._eval_logo_arg(parts, 2)
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            px, py = self.interpreter._canvas_coords(x, y)
+            tg["canvas"].create_rectangle(px, py, px+1, py+1, fill=tg.get("background", "white"), outline=tg.get("background", "white"))
+        return "continue"
+
+    def _logo_point(self, parts):
+        x = self._eval_logo_arg(parts, 1)
+        y = self._eval_logo_arg(parts, 2)
+        tg = self.interpreter.turtle_graphics
+        if tg:
+            width = tg.get("canvas").winfo_width() if tg.get("canvas") else 0
+            height = tg.get("canvas").winfo_height() if tg.get("canvas") else 0
+            canvas_x, canvas_y = self.interpreter._canvas_coords(x, y)
+            inside = 1 if 0 <= canvas_x < width and 0 <= canvas_y < height else 0
+            self.interpreter.log_output(str(inside))
+        else:
+            self.interpreter.log_output("0")
+        return "continue"
+
+    def _logo_screen(self, parts):
+        self._ensure_turtle()
+        mode = parts[1] if len(parts) > 1 else ""
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            # no-op for now (stub), could trigger screen mode changes in GUI
+            self.interpreter.log_output(f"SCREEN mode: {mode}")
+        return "continue"
+
     def _logo_rect(self, parts):
         self._ensure_turtle()
         w = self._eval_logo_arg(parts, 1)
@@ -800,6 +877,21 @@ class TempleCodeExecutor:
             tg["canvas"].create_rectangle(
                 cx, cy, cx + w, cy + h,
                 outline=tg["pen_color"], width=tg["pen_size"]
+            )
+        return "continue"
+
+    def _logo_rectfill(self, parts):
+        self._ensure_turtle()
+        w = self._eval_logo_arg(parts, 1)
+        h = self._eval_logo_arg(parts, 2) if len(parts) > 2 else w
+        tg = self.interpreter.turtle_graphics
+        if tg and tg.get("canvas"):
+            cx = tg["center_x"] + tg["x"]
+            cy = tg["center_y"] - tg["y"]
+            fill = tg.get("fill_color") or tg.get("pen_color")
+            tg["canvas"].create_rectangle(
+                cx, cy, cx + w, cy + h,
+                outline=tg["pen_color"], width=tg["pen_size"], fill=fill
             )
         return "continue"
 
@@ -1104,6 +1196,8 @@ class TempleCodeExecutor:
             return self._basic_else()
         elif cmd == "FOR":
             return self._basic_for(command)
+        elif cmd == "HELP":
+            return self._basic_help()
         elif cmd == "NEXT":
             return self._basic_next(command)
         elif cmd == "GOTO":
@@ -1165,6 +1259,20 @@ class TempleCodeExecutor:
                 except Exception:
                     random.seed()
             return "continue"
+        elif cmd == "RANGE":
+            return self._modern_range(command)
+        elif cmd == "FILEEXISTS":
+            return self._modern_fileexists(command)
+        elif cmd == "COPYFILE":
+            return self._modern_copyfile(command)
+        elif cmd == "DELETEFILE":
+            return self._modern_deletefile(command)
+        elif cmd == "UNSET":
+            return self._modern_unset(command)
+        elif cmd == "EVAL":
+            return self._modern_eval(command)
+        elif cmd == "PROGRAMINFO":
+            return self._modern_programinfo(command)
         elif cmd == "RESTORE":
             return self._basic_restore()
         elif cmd == "DELAY" or cmd == "SLEEP":
@@ -1200,6 +1308,8 @@ class TempleCodeExecutor:
             return self._basic_on(command)
         elif cmd == "BEEP":
             return self._basic_beep()
+        elif cmd == "PLAYNOTE" or cmd == "SOUND":
+            return self._basic_playnote(command)
         elif cmd == "TAB":
             return self._basic_tab(command)
         elif cmd == "SPC":
@@ -1333,10 +1443,11 @@ class TempleCodeExecutor:
 
         # Math/string function calls as statements
         elif cmd in ("SIN", "COS", "TAN", "SQRT", "ABS", "INT", "RND",
-                     "LOG", "EXP", "CEIL", "FIX"):
+                     "LOG", "EXP", "CEIL", "FIX", "BIN", "HEX", "OCT"):
             return self._basic_math_func(command)
         elif cmd in ("LEN", "MID", "LEFT", "RIGHT", "INSTR", "STR",
-                     "VAL", "CHR", "ASC", "UCASE", "LCASE"):
+                     "VAL", "CHR", "ASC", "UCASE", "LCASE", "TRIM",
+                     "CONTAINS", "STARTSWITH", "ENDSWITH"):
             return self._basic_string_func(command)
 
         else:
@@ -1377,6 +1488,24 @@ class TempleCodeExecutor:
             self.interpreter.log_output(result, end="")
         else:
             self.interpreter.log_output(result)
+        return "continue"
+
+    def _basic_help(self):
+        """HELP - print TempleCode quick command reference."""
+        lines = [
+            "TempleCode HELP - available commands:",
+            "PRINT, LET, INPUT, IF, ELSE, FOR, NEXT, GOTO, GOSUB, RETURN, DIM, DATA, READ, RESTORE, END, STOP",
+            "SWAP, INCR, DECR, SELECT, CASE, TRUE/FALSE flow control, DO/LOOP, WHILE/WEND",
+            "RANDOMIZE, RND, RANDINT(n), RANGE(name,start,end), TIMER, DATE$, TIME$, NOW, DATE, TIME",
+            "LIST/DICT operations: LIST, SPLIT, JOIN, PUSH, POP, SHIFT, UNSHIFT, SORT, REVERSE, SPLICE",
+            "DICT, SET, GET, DELETE, FILEEXISTS, COPYFILE, DELETEFILE, UNSET, PROGRAMINFO, EVAL, STATUS, JSON, REGEX, ENUM, STRUCT, LAMBDA, FUNCTION, SUB",
+            "File I/O: OPEN, CLOSE, READLINE, WRITELINE, READFILE, WRITEFILE, APPENDFILE",
+            "Logo: FORWARD/FD, BACK/BK, LEFT/LT, RIGHT/RT, PENUP/PU, PENDOWN/PD, CIRCLE, CIRCLEFILL, RECT, RECTANGLE, RECTFILL, PSET, PRESET, POINT, SCREEN, SETCOLOR, CLEARSCREEN",
+            "PILOT: T:, A:, M:, Y:, N:, J:, C:, G:, S:, D:, P:, X:",
+            "Use HELP to show this message again.",
+        ]
+        for line in lines:
+            self.interpreter.log_output(line)
         return "continue"
 
     @staticmethod
@@ -2100,6 +2229,30 @@ class TempleCodeExecutor:
             pass
         return "continue"
 
+    def _basic_playnote(self, command):
+        """PLAYNOTE freq,duration  OR SOUND freq,duration"""
+        text = re.sub(r'^(PLAYNOTE|SOUND)\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        if not parts or len(parts) < 2:
+            self.interpreter.log_output('PLAYNOTE syntax: PLAYNOTE freq,duration')
+            return "continue"
+        try:
+            freq = float(self._eval_basic_expression(parts[0]))
+            dur = float(self._eval_basic_expression(parts[1]))
+        except Exception:
+            self.interpreter.log_output('PLAYNOTE frequency and duration must be numbers')
+            return "continue"
+        # Platform-independent fallback: on Windows use winsound, otherwise log.
+        try:
+            if sys.platform == 'win32':
+                import winsound
+                winsound.Beep(int(freq), int(dur))
+            else:
+                self.interpreter.log_output(f"[SOUND] {freq}Hz for {dur}ms")
+        except Exception:
+            self.interpreter.log_output(f"[SOUND] {freq}Hz for {dur}ms")
+        return "continue"
+
     def _basic_tab(self, command):
         """TAB n — print spaces to move to column n."""
         parts = command.split()
@@ -2212,6 +2365,52 @@ class TempleCodeExecutor:
         if upper_expr == "TIME$":
             import datetime as _dt
             return _dt.datetime.now().strftime("%H:%M:%S")
+        if upper_expr == "NOW":
+            return time.time()
+        if upper_expr == "DATE":
+            import datetime as _dt
+            return _dt.date.today().isoformat()
+        if upper_expr == "TIME":
+            import datetime as _dt
+            return _dt.datetime.now().strftime("%H:%M:%S")
+
+        # BIN/HEX/OCT conversions
+        bin_match = re.match(r'^BIN\((.+)\)$', upper_expr)
+        if bin_match:
+            value = int(float(self._eval_basic_expression(bin_match.group(1))))
+            return format(value, 'b')
+        hex_match = re.match(r'^HEX\((.+)\)$', upper_expr)
+        if hex_match:
+            value = int(float(self._eval_basic_expression(hex_match.group(1))))
+            return format(value, 'x')
+        oct_match = re.match(r'^OCT\((.+)\)$', upper_expr)
+        if oct_match:
+            value = int(float(self._eval_basic_expression(oct_match.group(1))))
+            return format(value, 'o')
+
+        # String search utilities
+        contains_match = re.match(r'^CONTAINS\((.+),\s*(.+)\)$', expr, re.IGNORECASE)
+        if contains_match:
+            hay_value = self._eval_basic_expression(contains_match.group(1))
+            needle = self._eval_basic_expression(contains_match.group(2))
+            if isinstance(hay_value, (list, tuple, set, dict)):
+                return 1 if needle in hay_value else 0
+            # support matrix for string containment as well
+            return 1 if str(needle) in str(hay_value) else 0
+        starts_match = re.match(r'^STARTSWITH\((.+),\s*(.+)\)$', expr, re.IGNORECASE)
+        if starts_match:
+            hay = str(self._eval_basic_expression(starts_match.group(1)))
+            prefix = str(self._eval_basic_expression(starts_match.group(2)))
+            return 1 if hay.startswith(prefix) else 0
+        ends_match = re.match(r'^ENDSWITH\((.+),\s*(.+)\)$', expr, re.IGNORECASE)
+        if ends_match:
+            hay = str(self._eval_basic_expression(ends_match.group(1)))
+            suffix = str(self._eval_basic_expression(ends_match.group(2)))
+            return 1 if hay.endswith(suffix) else 0
+
+        trim_match = re.match(r'^TRIM\((.+)\)$', expr, re.IGNORECASE)
+        if trim_match:
+            return str(self._eval_basic_expression(trim_match.group(1))).strip()
 
         # TYPE() function
         type_match = re.match(r'^TYPE\((.+)\)$', upper_expr)
@@ -2233,6 +2432,14 @@ class TempleCodeExecutor:
                 n = int(float(self.interpreter.evaluate_expression(arg)))
                 return random.randint(1, max(1, n))
             return random.random()
+
+        # RANDINT function: 0 .. n-1
+        randint_match = re.match(r'^RANDINT\(([^)]+)\)$', upper_expr)
+        if randint_match:
+            n = int(float(self.interpreter.evaluate_expression(randint_match.group(1))))
+            if n <= 0:
+                return 0
+            return random.randrange(n)
 
         # INT function — standard BASIC INT() is the floor function
         int_match = re.match(r'^INT\((.+)\)$', upper_expr)
@@ -2278,7 +2485,10 @@ class TempleCodeExecutor:
         # String functions
         len_match = re.match(r'^LEN\((.+)\)$', upper_expr)
         if len_match:
-            return len(str(self._eval_basic_expression(len_match.group(1))))
+            target = self._eval_basic_expression(len_match.group(1))
+            if isinstance(target, (list, dict)):
+                return len(target)
+            return len(str(target))
 
         # String functions — use re.IGNORECASE on the original expr so that
         # string literals inside arguments are NOT uppercased.
@@ -3242,6 +3452,124 @@ class TempleCodeExecutor:
             self.interpreter.variables[var] = type_name
         else:
             self.interpreter.log_output(type_name)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  RANGE — Create range list
+    # ------------------------------------------------------------------
+
+    def _modern_range(self, command):
+        """RANGE list_name, start, end [, step]"""
+        text = re.sub(r'^RANGE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = self._smart_split(text, ",")
+        if len(parts) < 3:
+            self.interpreter.log_output('RANGE syntax: RANGE name, start, end [, step]')
+            return "continue"
+        name = parts[0].strip().upper()
+        start = int(float(self._eval_basic_expression(parts[1].strip())))
+        end = int(float(self._eval_basic_expression(parts[2].strip())))
+        if len(parts) > 3:
+            step = int(float(self._eval_basic_expression(parts[3].strip())))
+        else:
+            step = 1 if end >= start else -1
+        if step == 0:
+            self.interpreter.log_output('RANGE step cannot be 0')
+            return "continue"
+        # Python range end is exclusive; TempleCode inclusive for learner familiarity.
+        if step > 0:
+            rng = list(range(start, end + 1, step))
+        else:
+            rng = list(range(start, end - 1, step))
+        self.interpreter.lists[name] = rng
+        self.interpreter.variables[name] = rng
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  FILEEXISTS / COPYFILE / DELETEFILE
+    # ------------------------------------------------------------------
+
+    def _modern_fileexists(self, command):
+        """FILEEXISTS "filename", var"""
+        m = re.match(r'FILEEXISTS\s+"([^"]+)"\s*,\s*(\w+)', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('FILEEXISTS syntax: FILEEXISTS "file", var')
+            return "continue"
+        filename = m.group(1)
+        var = m.group(2).upper()
+        import os
+        exists = 1 if os.path.exists(filename) else 0
+        self.interpreter.variables[var] = exists
+        return "continue"
+
+    def _modern_copyfile(self, command):
+        """COPYFILE "source", "dest""" 
+        m = re.match(r'COPYFILE\s+"([^"]+)"\s*,\s*"([^"]+)"', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('COPYFILE syntax: COPYFILE "src", "dst"')
+            return "continue"
+        src, dst = m.group(1), m.group(2)
+        try:
+            import shutil
+            shutil.copyfile(src, dst)
+        except Exception as e:
+            self.interpreter.log_output(f"File error: {e}")
+        return "continue"
+
+    def _modern_deletefile(self, command):
+        """DELETEFILE "filename"""
+        m = re.match(r'DELETEFILE\s+"([^"]+)"', command, re.IGNORECASE)
+        if not m:
+            self.interpreter.log_output('DELETEFILE syntax: DELETEFILE "file"')
+            return "continue"
+        filename = m.group(1)
+        import os
+        try:
+            os.remove(filename)
+        except Exception as e:
+            self.interpreter.log_output(f"File error: {e}")
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  UNSET / EVAL / PROGRAMINFO
+    # ------------------------------------------------------------------
+
+    def _modern_unset(self, command):
+        """UNSET var"""
+        text = re.sub(r'^UNSET\s+', '', command, flags=re.IGNORECASE).strip()
+        name = text.upper()
+        self.interpreter.variables.pop(name, None)
+        self.interpreter.lists.pop(name, None)
+        self.interpreter.dicts.pop(name, None)
+        return "continue"
+
+    def _modern_eval(self, command):
+        """EVAL expr [AS var] """
+        text = re.sub(r'^EVAL\s+', '', command, flags=re.IGNORECASE).strip()
+        as_m = re.match(r'(.+?)\s+AS\s+(\w+)$', text, re.IGNORECASE)
+        if as_m:
+            expr = as_m.group(1).strip()
+            var = as_m.group(2).upper()
+            val = self._eval_basic_expression(expr)
+            self.interpreter.variables[var] = val
+        else:
+            val = self._eval_basic_expression(text)
+            self.interpreter.log_output(str(val))
+        return "continue"
+
+    def _modern_programinfo(self, command):
+        """PROGRAMINFO [INTO var]"""
+        m = re.match(r'PROGRAMINFO(?:\s+INTO\s+(\w+))?', command, re.IGNORECASE)
+        var = m.group(1).upper() if m and m.group(1) else None
+        info = {
+            'lines': len(self.interpreter.program_lines),
+            'variables': len(self.interpreter.variables),
+            'lists': len(self.interpreter.lists),
+            'dicts': len(self.interpreter.dicts),
+        }
+        if var:
+            self.interpreter.variables[var] = info
+        else:
+            self.interpreter.log_output(str(info))
         return "continue"
 
     # ------------------------------------------------------------------

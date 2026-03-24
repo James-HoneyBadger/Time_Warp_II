@@ -353,6 +353,74 @@ class TestSwapIncrDecr:
         assert run_program(code).last_line == "7"
 
 
+class TestHelpAndRandInt:
+    def test_help(self):
+        out = run_program("HELP")
+        assert "TempleCode HELP" in out.raw
+        assert "PRINT" in out.raw
+        assert "READFILE" in out.raw
+
+    def test_randint(self):
+        # Should generate values in [0, 10)
+        for _ in range(20):
+            out = run_program("LET X = RANDINT(10)\nIF X >= 0 AND X < 10 THEN PRINT \"OK\"")
+            assert out.last_line == "OK"
+
+
+class TestNewCommandSuite:
+    def test_range(self):
+        out = run_program("RANGE L, 1, 5\nPRINT LEN(L)\nPRINT L[1]")
+        assert out.program_lines[0] == "5"
+        assert out.program_lines[1] == "2"
+
+    def test_unset_and_eval(self):
+        out = run_program("LET X = 7\nUNSET X\nPRINT X\nEVAL 8*2 AS Y\nPRINT Y")
+        assert out.program_lines[0] == "0"
+        assert out.program_lines[1] == "16"
+
+    def test_programinfo(self):
+        out = run_program("PROGRAMINFO")
+        assert "'lines'" in out.raw or "lines" in out.raw
+
+    def test_bin_hex_oct_trim_contains(self):
+        out = run_program(
+            "PRINT BIN(10)\nPRINT HEX(255)\nPRINT OCT(8)\nPRINT TRIM(\"  hello  \")\nPRINT CONTAINS(\"abc\",\"b\")\nPRINT STARTSWITH(\"abc\",\"a\")\nPRINT ENDSWITH(\"abc\",\"c\")"
+        )
+        assert out.program_lines[0] == "1010"
+        assert out.program_lines[1] == "ff"
+        assert out.program_lines[2] == "10"
+        assert out.program_lines[3] == "hello"
+        assert out.program_lines[4] == "1"
+        assert out.program_lines[5] == "1"
+        assert out.program_lines[6] == "1"
+
+    def test_fileexists_copy_deletefile(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tdir:
+            src = os.path.join(tdir, "a.txt")
+            dst = os.path.join(tdir, "b.txt")
+            with open(src, "w", encoding="utf-8") as f:
+                f.write("test")
+            out = run_program(f"FILEEXISTS \"{src}\", F\nPRINT F\nCOPYFILE \"{src}\", \"{dst}\"\nFILEEXISTS \"{dst}\", G\nPRINT G\nDELETEFILE \"{dst}\"\nFILEEXISTS \"{dst}\", H\nPRINT H")
+            assert out.program_lines[0] == "1"
+            assert out.program_lines[1] == "1"
+            assert out.program_lines[2] == "0"
+
+    def test_graphics_fill_commands(self):
+        _, interp = run_with_interp("SETFILLCOLOR red\nCIRCLEFILL 20\nRECTFILL 30,15")
+        tg = interp.turtle_graphics
+        assert tg is not None
+        assert tg.get("canvas") is not None
+        # Headless canvas should record draw operations
+        created = tg["canvas"].created
+        assert any(item["type"] == "oval" for item in created)
+        assert any(item["type"] == "rectangle" for item in created)
+
+    def test_sound_commands(self):
+        out = run_program("PLAYNOTE 440,10\nSOUND 880,20")
+        assert "[SOUND]" in out.raw
+
+
 # =====================================================================
 #  BASIC — STOP / END / CLS
 # =====================================================================
