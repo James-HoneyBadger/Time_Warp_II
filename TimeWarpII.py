@@ -483,16 +483,13 @@ class TempleCodeApp:
             variable=self._auto_dark_var,
             command=self._toggle_auto_dark)
 
-        # --- About ---
-        about_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="About", menu=about_menu)
-        about_menu.add_command(label="About Time Warp II", command=self.show_about)
-
         # --- Help ---
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="Quick Reference", command=self.show_quick_reference)
         help_menu.add_command(label="Keyboard Shortcuts", command=self.show_keyboard_shortcuts)
+        help_menu.add_separator()
+        help_menu.add_command(label="About Time Warp II", command=self.show_about)
 
         # Build command palette entries (Feature 6)
         self._palette_commands = [
