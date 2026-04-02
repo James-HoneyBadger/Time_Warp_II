@@ -16,12 +16,18 @@ import math
 import os
 import random
 import re
+import sys
 import time
 
 try:
     import json
 except ImportError:
     json = None  # ancient Pythons
+
+try:
+    import shutil as _shutil
+except ImportError:
+    _shutil = None
 
 # ======================================================================
 #  Utility helpers
@@ -45,6 +51,90 @@ def _is_number(v):
 def _is_string(v):
     return isinstance(v, str)
 
+
+def _levenshtein(a, b):
+    """Compute Levenshtein edit distance between two strings."""
+    if len(a) < len(b):
+        return _levenshtein(b, a)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1,
+                            prev[j] + (0 if ca == cb else 1)))
+        prev = curr
+    return prev[-1]
+
+
+ALL_KEYWORDS = [
+    "PRINT", "LET", "INPUT", "IF", "THEN", "ELSE", "ELSEIF", "ENDIF",
+    "FOR", "NEXT", "WHILE", "WEND", "DO", "LOOP", "GOTO", "GOSUB",
+    "RETURN", "DIM", "DATA", "READ", "RESTORE", "RANDOMIZE",
+    "DELAY", "SLEEP", "SELECT", "CASE", "SWAP", "INCR", "DECR",
+    "INC", "DEC", "CLS", "BEEP", "STOP", "END", "BREAK", "EXIT",
+    "ON", "SUB", "FUNCTION", "CALL", "CONST", "FOREACH", "PRINTF",
+    "LIST", "PUSH", "POP", "SHIFT", "UNSHIFT", "SORT", "REVERSE", "SPLICE",
+    "DICT", "SET", "GET", "DELETE",
+    "TRY", "CATCH", "THROW", "ASSERT", "TYPEOF", "ENUM",
+    "STRUCT", "NEW", "LAMBDA", "MAP", "FILTER", "REDUCE",
+    "JSON", "REGEX", "SPLIT", "JOIN", "IMPORT",
+    "OPEN", "CLOSE", "READLINE", "WRITELINE", "READFILE", "WRITEFILE", "APPENDFILE",
+    "RANGE", "FILEEXISTS", "COPYFILE", "DELETEFILE",
+    "UNSET", "EVAL", "PROGRAMINFO", "HELP", "INKEY",
+    "WRITE", "WRITELN", "READLN", "PAUSE", "TAB", "SPC",
+    "PLAYNOTE", "SOUND", "LOAD", "SAVE", "CHAIN",
+    "ASSERTA", "ASSERTZ", "RETRACT", "QUERY", "FACTS",
+    "FORWARD", "FD", "BACK", "BK", "LEFT", "LT", "RIGHT", "RT",
+    "PENUP", "PU", "PENDOWN", "PD", "HOME", "CLEARSCREEN", "CS",
+    "SHOWTURTLE", "ST", "HIDETURTLE", "HT",
+    "SETXY", "SETCOLOR", "SETPENSIZE", "SETHEADING", "SETH",
+    "CIRCLE", "CIRCLEFILL", "ARC", "DOT", "RECT", "RECTFILL",
+    "SQUARE", "TRIANGLE", "POLYGON", "STAR", "FILL", "FILLED",
+    "PSET", "PRESET", "POINT", "SCREEN", "REPEAT", "MAKE", "LABEL",
+    "SETFILLCOLOR", "SETFC", "SETBACKGROUND", "SETBG", "TOWARDS",
+    "COLOR", "COLOUR", "CLEAN", "WRAP", "WINDOW", "FENCE",
+]
+
+
+def _suggest_command(cmd):
+    """Return the closest keyword if within edit distance 2, else None."""
+    cmd_upper = cmd.upper()
+    best, best_dist = None, 3
+    for kw in ALL_KEYWORDS:
+        d = _levenshtein(cmd_upper, kw)
+        if d < best_dist:
+            best, best_dist = kw, d
+    return best
+
+
+def _smart_split(text, delimiter=","):
+    """Split text on delimiter, respecting quoted strings and brackets."""
+    parts = []
+    current = []
+    in_string = False
+    depth = 0
+    for ch in text:
+        if ch == '"' and depth == 0:
+            in_string = not in_string
+            current.append(ch)
+        elif ch in "([" and not in_string:
+            depth += 1
+            current.append(ch)
+        elif ch in ")]" and not in_string:
+            depth -= 1
+            current.append(ch)
+        elif ch == delimiter and not in_string and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
 # ======================================================================
 #  TempleCode Engine
 # ======================================================================
@@ -64,11 +154,12 @@ class TempleCodeEngine(object):
     #  Construction
     # ------------------------------------------------------------------
 
-    def __init__(self, output_cb=None, input_cb=None, canvas_cb=None):
+    def __init__(self, output_cb=None, input_cb=None, canvas_cb=None, key_cb=None):
         # Callbacks
         self.output_cb  = output_cb  or self._default_output
         self.input_cb   = input_cb   or self._default_input
         self.canvas_cb  = canvas_cb  or (lambda *a, **kw: None)
+        self.key_cb     = key_cb     or (lambda: "")
 
         self._reset()
 
@@ -131,6 +222,22 @@ class TempleCodeEngine(object):
         self.try_stack  = []
         self.last_error = ""
 
+        # Prolog facts
+        self.prolog_facts = []
+
+        # File handles
+        self.file_handles = {}
+
+        # Imported modules
+        self.imported_modules = set()
+
+        # Key buffer for INKEY
+        self.key_buffer = []
+
+        # Fill color and boundary mode
+        self.turtle_fill_color = "white"
+        self.turtle_boundary = "wrap"
+
         # Timing
         self._start_time = time.time()
 
@@ -168,6 +275,11 @@ class TempleCodeEngine(object):
         if expr.startswith('"') and expr.endswith('"') and expr.count('"') == 2:
             return expr[1:-1]
 
+        # Extended expression checks first
+        ext = self._eval_extended(expr)
+        if ext is not expr:
+            return ext
+
         # ---- build a Python expression string ----
         s = self._transform_expr(expr)
 
@@ -200,6 +312,284 @@ class TempleCodeEngine(object):
                 return _safe_num(expr.strip())
             except Exception:
                 return expr.strip()
+
+    def _eval_extended(self, expr):
+        """Extended expression evaluation for new features.
+        Returns the expr object itself (identity) if not handled."""
+        upper = expr.upper().strip()
+
+        # INKEY / INKEY$
+        if upper in ("INKEY$", "INKEY"):
+            if self.key_buffer:
+                return self.key_buffer.pop(0)
+            return self.key_cb()
+
+        # TIMER pseudo-variable
+        if upper == "TIMER":
+            return round(time.time() - self._start_time, 3)
+
+        # DATE$ and TIME$
+        if upper in ("DATE$", "DATE"):
+            import datetime as _dt
+            return _dt.date.today().isoformat()
+        if upper in ("TIME$", "TIME"):
+            import datetime as _dt
+            return _dt.datetime.now().strftime("%H:%M:%S")
+        if upper == "NOW":
+            return time.time()
+
+        # Constants
+        if upper == "PI":
+            return math.pi
+        if upper == "TAU":
+            return math.pi * 2
+        if upper == "INF":
+            return float("inf")
+        if upper == "RESULT":
+            return self.return_value if self.return_value is not None else 0
+        if upper == "ERROR$":
+            return self.last_error
+        if upper == "TRUE":
+            return 1
+        if upper == "FALSE":
+            return 0
+
+        # List literal: [1, 2, 3]
+        if expr.startswith("[") and expr.endswith("]"):
+            items = _smart_split(expr[1:-1], ",")
+            return [self.evaluate(it.strip()) for it in items if it.strip()]
+
+        # List access: NAME[index]
+        m = re.match(r'(\w+)\[(.+)\]', expr)
+        if m:
+            name = m.group(1).upper()
+            idx = int(float(self.evaluate(m.group(2))))
+            if name in self.lists:
+                lst = self.lists[name]
+                if 0 <= idx < len(lst):
+                    return lst[idx]
+                return ""
+            lv = self.variables.get(name)
+            if isinstance(lv, list) and 0 <= idx < len(lv):
+                return lv[idx]
+            return ""
+
+        # Dict access: NAME.key
+        m = re.match(r'^(\w+)\.(\w+)$', expr)
+        if m:
+            name = m.group(1).upper()
+            key = m.group(2)
+            if name in self.dicts:
+                d = self.dicts[name]
+                if key in d:
+                    return d[key]
+                if key.upper() in d:
+                    return d[key.upper()]
+                return ""
+
+        # LENGTH(x)
+        m = re.match(r'^LENGTH\((\w+)\)$', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            if name in self.lists:
+                return len(self.lists[name])
+            if name in self.dicts:
+                return len(self.dicts[name])
+            val = self.variables.get(name, "")
+            if isinstance(val, list):
+                return len(val)
+            return len(str(val))
+
+        # ROUND(value, n?)
+        m = re.match(r'^ROUND\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            val = float(self.evaluate(args[0].strip()))
+            n = int(self.evaluate(args[1].strip())) if len(args) > 1 else 0
+            result = round(val, n)
+            return int(result) if n == 0 else result
+
+        # FLOOR(value)
+        m = re.match(r'^FLOOR\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            return int(math.floor(float(self.evaluate(m.group(1).strip()))))
+
+        # TRUNC(value)
+        m = re.match(r'^TRUNC\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            val = float(self.evaluate(m.group(1).strip()))
+            return int(val) if val >= 0 else -int(-val)
+
+        # POWER(base, exp)
+        m = re.match(r'^POWER\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                base = float(self.evaluate(args[0].strip()))
+                exp = float(self.evaluate(args[1].strip()))
+                r = base ** exp
+                return int(r) if r == int(r) else r
+
+        # RANDOM(min, max)
+        m = re.match(r'^RANDOM\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                lo = int(float(self.evaluate(args[0].strip())))
+                hi = int(float(self.evaluate(args[1].strip())))
+                return random.randint(lo, hi)
+
+        # RANDINT(n)
+        m = re.match(r'^RANDINT\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            n = int(float(self.evaluate(m.group(1).strip())))
+            return random.randrange(max(1, n))
+
+        # KEYS(dict) / VALUES(dict)
+        m = re.match(r'^KEYS\((\w+)\)$', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            return list(self.dicts[name].keys()) if name in self.dicts else []
+        m = re.match(r'^VALUES\((\w+)\)$', expr, re.IGNORECASE)
+        if m:
+            name = m.group(1).upper()
+            return list(self.dicts[name].values()) if name in self.dicts else []
+
+        # HASKEY(dict, key)
+        m = re.match(r'^HASKEY\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                name = args[0].strip().upper()
+                key = self.evaluate(args[1].strip())
+                return 1 if (name in self.dicts and key in self.dicts[name]) else 0
+            return 0
+
+        # INDEXOF(list, value)
+        m = re.match(r'^INDEXOF\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                name = args[0].strip().upper()
+                val = self.evaluate(args[1].strip())
+                if name in self.lists:
+                    try:
+                        return self.lists[name].index(val)
+                    except ValueError:
+                        return -1
+            return -1
+
+        # SLICE(list, start, end)
+        m = re.match(r'^SLICE\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 3:
+                name = args[0].strip().upper()
+                start = int(float(self.evaluate(args[1].strip())))
+                end = int(float(self.evaluate(args[2].strip())))
+                if name in self.lists:
+                    return self.lists[name][start:end]
+
+        # CONTAINS(x, y)
+        m = re.match(r'^CONTAINS\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                hay = self.evaluate(args[0].strip())
+                needle = self.evaluate(args[1].strip())
+                if isinstance(hay, (list, dict)):
+                    return 1 if needle in hay else 0
+                return 1 if str(needle) in str(hay) else 0
+
+        # STARTSWITH / ENDSWITH
+        m = re.match(r'^STARTSWITH\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                return 1 if str(self.evaluate(args[0].strip())).startswith(str(self.evaluate(args[1].strip()))) else 0
+        m = re.match(r'^ENDSWITH\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                return 1 if str(self.evaluate(args[0].strip())).endswith(str(self.evaluate(args[1].strip()))) else 0
+
+        # ISNUMBER / ISSTRING
+        m = re.match(r'^ISNUMBER\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            return 1 if isinstance(self.evaluate(m.group(1).strip()), (int, float)) else 0
+        m = re.match(r'^ISSTRING\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            return 1 if isinstance(self.evaluate(m.group(1).strip()), str) else 0
+
+        # TONUM / TOSTR
+        m = re.match(r'^TONUM\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            try:
+                f = float(self.evaluate(m.group(1).strip()))
+                return int(f) if f == int(f) else f
+            except (ValueError, TypeError):
+                return 0
+        m = re.match(r'^TOSTR\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            return str(self.evaluate(m.group(1).strip()))
+
+        # FILEEXISTS(filename) as expression
+        m = re.match(r'^FILEEXISTS\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            return 1 if os.path.exists(str(self.evaluate(m.group(1).strip()))) else 0
+
+        # TYPE(x)
+        m = re.match(r'^TYPE\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            val = self.evaluate(m.group(1).strip())
+            if isinstance(val, str):
+                return "STRING"
+            elif isinstance(val, (int, float)):
+                return "NUMBER"
+            elif isinstance(val, list):
+                return "LIST"
+            elif isinstance(val, dict):
+                return "DICT"
+            return "UNKNOWN"
+
+        # SPLIT(string, delimiter)
+        m = re.match(r'^SPLIT\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                return str(self.evaluate(args[0].strip())).split(str(self.evaluate(args[1].strip())))
+
+        # JOIN(list, delimiter)
+        m = re.match(r'^JOIN\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            args = _smart_split(m.group(1), ",")
+            if len(args) == 2:
+                name = args[0].strip().upper()
+                d = str(self.evaluate(args[1].strip()))
+                if name in self.lists:
+                    return d.join(str(x) for x in self.lists[name])
+
+        # FIX(x) - truncate toward zero
+        m = re.match(r'^FIX\((.+)\)$', expr, re.IGNORECASE)
+        if m:
+            val = float(self.evaluate(m.group(1).strip()))
+            return int(val) if val >= 0 else -int(-val)
+
+        # User-defined function / lambda call
+        m = re.match(r'^(\w+)\(([^)]*)\)$', expr)
+        if m:
+            fname = m.group(1).upper()
+            if fname in self.func_defs:
+                raw_args = m.group(2).strip()
+                args = [a.strip() for a in _smart_split(raw_args, ",")] if raw_args else []
+                arg_vals = [self.evaluate(a) for a in args]
+                if "lambda_body" in self.func_defs[fname]:
+                    return self._eval_lambda(fname, arg_vals)
+                else:
+                    return self._call_function(fname, arg_vals)
+
+        # Not handled -- return identity
+        return expr
 
     def _transform_expr(self, s):
         """Rewrite BASIC expression syntax -> Python-evaluable string."""
@@ -286,9 +676,9 @@ class TempleCodeEngine(object):
             vr = str(self.variables[vn]) if _is_number(self.variables[vn]) \
                 else '"%s"' % str(self.variables[vn]).replace('"', '\\"')
             if "$" in vn:
-                s = re.sub(re.escape(vn) + r"(?=\s|$|[^A-Za-z0-9_$])", vr, s)
+                s = re.sub(re.escape(vn) + r"(?=\s|$|[^A-Za-z0-9_$])", vr, s, flags=re.IGNORECASE)
             else:
-                s = re.sub(r"\b" + re.escape(vn) + r"\b", vr, s)
+                s = re.sub(r"\b" + re.escape(vn) + r"\b", vr, s, flags=re.IGNORECASE)
 
         return s
 
@@ -562,17 +952,25 @@ class TempleCodeEngine(object):
             "FORWARD", "FD", "BACK", "BK", "BACKWARD",
             "LEFT", "LT", "RIGHT", "RT",
             "PENUP", "PU", "PENDOWN", "PD",
-            "HOME", "CLEARSCREEN", "CS",
+            "HOME", "CLEARSCREEN", "CS", "CLEAN",
             "SHOWTURTLE", "ST", "HIDETURTLE", "HT",
             "SETXY", "SETPOS", "SETX", "SETY",
-            "SETCOLOR", "SETCOLOUR", "SETPENCOLOR",
+            "SETCOLOR", "SETCOLOUR", "SETPENCOLOR", "SETPC",
             "SETPENSIZE", "SETWIDTH",
+            "SETFILLCOLOR", "SETFC",
+            "SETBACKGROUND", "SETBG",
+            "SETSCREENCOLOR", "SETSCREENCOLOUR",
             "SETHEADING", "SETH",
-            "CIRCLE", "ARC", "DOT",
+            "TOWARDS",
+            "CIRCLE", "CIRCLEFILL", "ARC", "DOT",
             "SQUARE", "TRIANGLE", "POLYGON", "STAR",
-            "RECT", "RECTANGLE",
+            "RECT", "RECTANGLE", "RECTFILL",
+            "FILL", "FILLED",
+            "PSET", "PRESET", "POINT", "SCREEN",
             "REPEAT",
-            "LABEL",
+            "MAKE",
+            "LABEL", "STAMP",
+            "WRAP", "WINDOW", "FENCE",
         }
         if first in logo_kw:
             return self._dispatch_logo(command, first)
@@ -635,6 +1033,14 @@ class TempleCodeEngine(object):
             return self._pilot_remark()
         elif letter == "L":
             return self._pilot_label(arg)
+        elif letter == "G":
+            return self._pilot_graphics(arg)
+        elif letter == "S":
+            return self._pilot_string(arg)
+        elif letter == "D":
+            return self._pilot_dim(arg)
+        elif letter == "X":
+            return self._pilot_execute(arg)
         else:
             return "continue"
 
@@ -697,6 +1103,47 @@ class TempleCodeEngine(object):
         """L: -- declare label (already collected at load time)."""
         return "continue"
 
+    def _pilot_graphics(self, arg):
+        """G: -- Inline turtle graphics shorthand.  G:FORWARD 100"""
+        arg = arg.strip()
+        if not arg:
+            return "continue"
+        first = arg.split()[0].upper() if arg.split() else ""
+        return self._dispatch_logo(arg, first)
+
+    def _pilot_string(self, arg):
+        """S: -- String operations.  S:UPPER X  /  S:LEN X  etc."""
+        parts = arg.split()
+        if len(parts) < 2:
+            return "continue"
+        op = parts[0].upper()
+        var_name = parts[1].upper()
+        val = str(self.variables.get(var_name, ""))
+        if op == "UPPER":
+            self.variables[var_name] = val.upper()
+        elif op == "LOWER":
+            self.variables[var_name] = val.lower()
+        elif op == "LEN":
+            self.variables[var_name + "_LEN"] = len(val)
+        elif op == "REVERSE":
+            self.variables[var_name] = val[::-1]
+        elif op == "TRIM":
+            self.variables[var_name] = val.strip()
+        return "continue"
+
+    def _pilot_dim(self, arg):
+        """D: -- Dimension an array.  D:ARR(10)"""
+        m = re.match(r'(\w+)\((\d+)\)', arg)
+        if m:
+            name = m.group(1).upper()
+            size = int(m.group(2))
+            self.arrays[name] = dict((i, 0) for i in range(size))
+        return "continue"
+
+    def _pilot_execute(self, arg):
+        """X: -- Execute a BASIC or Logo command inline."""
+        return self._execute(arg)
+
     def _resolve_pilot_vars(self, text):
         """Replace $VAR, {VAR}, and {expr} placeholders in PILOT text."""
         # {N} positional placeholders -- not applicable here, keep simple
@@ -742,9 +1189,10 @@ class TempleCodeEngine(object):
             return "continue"
         elif first == "HOME":
             return self._logo_home()
-        elif first in ("CLEARSCREEN", "CS"):
+        elif first in ("CLEARSCREEN", "CS", "CLEAN"):
             self.canvas_cb("clear")
-            self.turtle_x, self.turtle_y, self.turtle_heading = 0, 0, 0
+            if first != "CLEAN":
+                self.turtle_x, self.turtle_y, self.turtle_heading = 0, 0, 0
             return "continue"
         elif first in ("HIDETURTLE", "HT"):
             self.turtle_visible = False
@@ -756,7 +1204,7 @@ class TempleCodeEngine(object):
             self.canvas_cb("turtle", x=self.turtle_x, y=self.turtle_y,
                            heading=self.turtle_heading, visible=True)
             return "continue"
-        elif first in ("SETCOLOR", "SETCOLOUR", "SETPENCOLOR"):
+        elif first in ("SETCOLOR", "SETCOLOUR", "SETPENCOLOR", "SETPC"):
             return self._logo_setcolor(argstr)
         elif first in ("SETPENSIZE", "SETWIDTH"):
             return self._logo_setpensize(argstr)
@@ -788,6 +1236,39 @@ class TempleCodeEngine(object):
             return self._logo_label(argstr)
         elif first == "REPEAT":
             return self._logo_repeat(command)
+        elif first in ("SETFILLCOLOR", "SETFC"):
+            return self._logo_setfillcolor(argstr)
+        elif first in ("SETBACKGROUND", "SETBG", "SETSCREENCOLOR", "SETSCREENCOLOUR"):
+            return self._logo_setbackground(argstr)
+        elif first == "TOWARDS":
+            return self._logo_towards(argstr)
+        elif first == "MAKE":
+            return self._logo_make(argstr)
+        elif first == "CIRCLEFILL":
+            return self._logo_circlefill(argstr)
+        elif first == "RECTFILL":
+            return self._logo_rectfill(argstr)
+        elif first in ("FILL", "FILLED"):
+            return self._logo_fill()
+        elif first == "PSET":
+            return self._logo_pset(argstr)
+        elif first == "PRESET":
+            return self._logo_preset(argstr)
+        elif first == "POINT":
+            return self._logo_point(argstr)
+        elif first == "SCREEN":
+            return self._logo_screen(argstr)
+        elif first == "STAMP":
+            return self._logo_label(argstr)
+        elif first == "WRAP":
+            self.turtle_boundary = "wrap"
+            return "continue"
+        elif first == "WINDOW":
+            self.turtle_boundary = "window"
+            return "continue"
+        elif first == "FENCE":
+            self.turtle_boundary = "fence"
+            return "continue"
         return "continue"
 
     # -- movement --
@@ -962,6 +1443,120 @@ class TempleCodeEngine(object):
                        text=text, color=self.turtle_color, size=sz)
         return "continue"
 
+    # -- new Logo commands --
+
+    def _logo_setfillcolor(self, argstr):
+        """SETFILLCOLOR color -- set fill color for filled shapes."""
+        color = argstr.strip().strip('"').lower()
+        if color.startswith(":"):
+            color = str(self.variables.get(color[1:].upper(), color))
+        if not color:
+            return "continue"
+        self.turtle_fill_color = color
+        return "continue"
+
+    def _logo_setbackground(self, argstr):
+        """SETBACKGROUND color -- set canvas background color."""
+        color = argstr.strip().strip('"').lower()
+        if color:
+            self.canvas_cb("background", color=color)
+        return "continue"
+
+    def _logo_towards(self, argstr):
+        """TOWARDS x y -- set heading toward coordinates."""
+        parts = argstr.replace(",", " ").split()
+        if len(parts) >= 2:
+            tx = float(self.evaluate(parts[0]))
+            ty = float(self.evaluate(parts[1]))
+            dx = tx - self.turtle_x
+            dy = ty - self.turtle_y
+            angle = math.degrees(math.atan2(dx, dy)) % 360
+            self.turtle_heading = angle
+            self.canvas_cb("turtle", x=self.turtle_x, y=self.turtle_y,
+                           heading=self.turtle_heading, visible=self.turtle_visible)
+        return "continue"
+
+    def _logo_make(self, argstr):
+        """MAKE \"varname value -- Logo variable assignment."""
+        parts = argstr.split(None, 1)
+        if len(parts) < 2:
+            return "continue"
+        name = parts[0].strip('"').upper()
+        try:
+            value = self.evaluate(parts[1])
+        except Exception:
+            value = parts[1]
+        self.variables[name] = value
+        return "continue"
+
+    def _logo_circlefill(self, argstr):
+        """CIRCLEFILL radius -- draw filled circle at turtle position."""
+        radius = float(self.evaluate(argstr)) if argstr.strip() else 50
+        self.canvas_cb("circlefill", x=self.turtle_x, y=self.turtle_y,
+                       radius=abs(radius), color=self.turtle_color,
+                       fill=self.turtle_fill_color, width=self.turtle_width)
+        return "continue"
+
+    def _logo_rectfill(self, argstr):
+        """RECTFILL w h -- draw filled rectangle at turtle position."""
+        parts = argstr.split()
+        w = float(self.evaluate(parts[0])) if parts else 50
+        h = float(self.evaluate(parts[1])) if len(parts) > 1 else w
+        self.canvas_cb("rectfill", x=self.turtle_x, y=self.turtle_y,
+                       w=w, h=h, color=self.turtle_color,
+                       fill=self.turtle_fill_color, width=self.turtle_width)
+        return "continue"
+
+    def _logo_fill(self):
+        """FILL -- flood fill at turtle position."""
+        self.canvas_cb("fill", x=self.turtle_x, y=self.turtle_y,
+                       color=self.turtle_fill_color)
+        return "continue"
+
+    def _logo_pset(self, argstr):
+        """PSET x, y -- set pixel at coordinates to pen color."""
+        parts = argstr.replace(",", " ").split()
+        if len(parts) >= 2:
+            x = float(self.evaluate(parts[0]))
+            y = float(self.evaluate(parts[1]))
+            self.canvas_cb("pixel", x=x, y=y, color=self.turtle_color)
+        return "continue"
+
+    def _logo_preset(self, argstr):
+        """PRESET x, y -- reset pixel to background color."""
+        parts = argstr.replace(",", " ").split()
+        if len(parts) >= 2:
+            x = float(self.evaluate(parts[0]))
+            y = float(self.evaluate(parts[1]))
+            self.canvas_cb("pixel", x=x, y=y, color="white")
+        return "continue"
+
+    def _logo_point(self, argstr):
+        """POINT x, y -- query pixel (simplified: always 1)."""
+        self.output_cb("1")
+        return "continue"
+
+    def _logo_screen(self, argstr):
+        """SCREEN [w h | mode] -- resize canvas or set screen mode."""
+        parts = argstr.split()
+        if len(parts) >= 2:
+            try:
+                w = int(float(self.evaluate(parts[0])))
+                h = int(float(self.evaluate(parts[1])))
+                self.canvas_cb("resize", width=w, height=h)
+            except Exception:
+                pass
+        elif len(parts) == 1:
+            mode = parts[0].upper()
+            presets = {
+                "0": (320, 200), "1": (640, 480), "2": (800, 600),
+                "SMALL": (320, 200), "MEDIUM": (640, 480), "LARGE": (800, 600),
+            }
+            if mode in presets:
+                w, h = presets[mode]
+                self.canvas_cb("resize", width=w, height=h)
+        return "continue"
+
     # -- REPEAT [...] --
 
     def _logo_repeat(self, command):
@@ -1009,10 +1604,13 @@ class TempleCodeEngine(object):
                     first_cur = current.strip().split()[0].upper() if current.strip() else ""
                     known = {"FORWARD", "FD", "BACK", "BK", "LEFT", "LT", "RIGHT", "RT",
                              "PENUP", "PU", "PENDOWN", "PD", "SETCOLOR", "SETCOLOUR",
-                             "SETPENSIZE", "HOME", "CIRCLE", "ARC", "DOT", "LABEL",
-                             "SQUARE", "TRIANGLE", "POLYGON", "STAR", "RECT",
+                             "SETPENSIZE", "HOME", "CIRCLE", "CIRCLEFILL", "ARC", "DOT",
+                             "LABEL", "SQUARE", "TRIANGLE", "POLYGON", "STAR", "RECT",
+                             "RECTFILL", "FILL", "FILLED", "PSET", "PRESET", "SCREEN",
                              "REPEAT", "HIDETURTLE", "HT", "SHOWTURTLE", "ST",
-                             "SETXY", "SETHEADING", "SETH", "SETPENCOLOR"}
+                             "SETXY", "SETHEADING", "SETH", "SETPENCOLOR", "SETPC",
+                             "SETFILLCOLOR", "SETFC", "SETBACKGROUND", "SETBG",
+                             "TOWARDS", "MAKE", "STAMP", "CLEAN"}
                     if first_next in known:
                         cmds.append(current.strip())
                         current = ""
@@ -1122,10 +1720,46 @@ class TempleCodeEngine(object):
             return self._basic_incr_decr(command, 1)
         elif cmd == "DECR":
             return self._basic_incr_decr(command, -1)
+        elif cmd == "INC":
+            return self._basic_incr_decr(command, 1)
+        elif cmd == "DEC":
+            return self._basic_incr_decr(command, -1)
+        elif cmd == "HELP":
+            return self._basic_help()
+        elif cmd == "INKEY":
+            return self._basic_inkey()
+        elif cmd == "PAUSE":
+            return self._basic_pause(command)
+        elif cmd == "WRITE":
+            return self._basic_write(command)
+        elif cmd == "WRITELN":
+            return self._basic_writeln(command)
+        elif cmd == "READLN":
+            return self._basic_readln(command)
+        elif cmd == "LOAD":
+            return self._basic_load(command)
+        elif cmd == "SAVE":
+            return self._basic_save(command)
+        elif cmd == "CHAIN":
+            return self._basic_chain(command)
+        elif cmd in ("PLAYNOTE", "SOUND"):
+            return self._basic_playnote(command)
+        elif cmd == "TAB":
+            return self._basic_tab(command)
+        elif cmd == "SPC":
+            return self._basic_spc(command)
+        elif cmd in ("COLOR", "COLOUR"):
+            rest = command.split(None, 1)[1] if " " in command else ""
+            return self._logo_setcolor(rest)
         elif cmd == "CLS":
             self.canvas_cb("cls")
             return "continue"
         elif cmd == "BEEP":
+            try:
+                sys.stdout.write('\a')
+                sys.stdout.flush()
+            except Exception:
+                pass
             return "continue"
         elif cmd == "STOP" or (cmd == "END" and upper.strip() == "END"):
             self.running = False
@@ -1145,6 +1779,8 @@ class TempleCodeEngine(object):
             elif eu == "END TRY":
                 if self.try_stack:
                     self.try_stack.pop()
+                return "continue"
+            elif eu in ("END STRUCT", "END LAMBDA", "END METHOD"):
                 return "continue"
             self.running = False
             return "end"
@@ -1174,6 +1810,12 @@ class TempleCodeEngine(object):
             return self._modern_push(command)
         elif cmd == "POP":
             return self._modern_pop(command)
+        elif cmd == "SHIFT":
+            return self._modern_shift(command)
+        elif cmd == "UNSHIFT":
+            return self._modern_unshift(command)
+        elif cmd == "SPLICE":
+            return self._modern_splice(command)
         elif cmd == "SORT":
             return self._modern_sort(command)
         elif cmd == "REVERSE":
@@ -1199,7 +1841,9 @@ class TempleCodeEngine(object):
         elif cmd == "ENUM":
             return self._modern_enum(command)
         elif cmd == "STRUCT":
-            return "continue"  # simplified: no struct support
+            return self._modern_struct(command)
+        elif cmd == "NEW":
+            return self._modern_new(command)
         elif cmd == "LAMBDA":
             return self._modern_lambda(command)
         elif cmd == "MAP":
@@ -1216,13 +1860,54 @@ class TempleCodeEngine(object):
             return self._modern_split(command)
         elif cmd == "JOIN":
             return self._modern_join(command)
+        elif cmd == "IMPORT":
+            return self._modern_import(command)
+        elif cmd == "RANGE":
+            return self._modern_range(command)
+        elif cmd == "OPEN":
+            return self._modern_open(command)
+        elif cmd == "CLOSE":
+            return self._modern_close(command)
+        elif cmd == "READLINE":
+            return self._modern_readline(command)
+        elif cmd == "WRITELINE":
+            return self._modern_writeline(command)
+        elif cmd == "READFILE":
+            return self._modern_readfile(command)
+        elif cmd == "WRITEFILE":
+            return self._modern_writefile(command)
+        elif cmd == "APPENDFILE":
+            return self._modern_appendfile(command)
+        elif cmd == "FILEEXISTS":
+            return self._modern_fileexists(command)
+        elif cmd == "COPYFILE":
+            return self._modern_copyfile(command)
+        elif cmd == "DELETEFILE":
+            return self._modern_deletefile(command)
+        elif cmd == "UNSET":
+            return self._modern_unset(command)
+        elif cmd == "EVAL":
+            return self._modern_eval(command)
+        elif cmd == "PROGRAMINFO":
+            return self._modern_programinfo(command)
+        elif cmd in ("ASSERTA", "ASSERTZ"):
+            return self._prolog_assert(cmd, command)
+        elif cmd == "RETRACT":
+            return self._prolog_retract(command)
+        elif cmd == "QUERY":
+            return self._prolog_query(command)
+        elif cmd == "FACTS":
+            return self._prolog_facts()
 
         # Direct assignment: X = 5
         elif "=" in command and not command.upper().startswith("IF"):
             return self._basic_let("LET " + command)
         else:
-            # Try evaluating as assignment with dotted names (dict.key = val)
-            self.output_cb("Unknown command: %s" % command)
+            suggestion = _suggest_command(cmd)
+            if suggestion:
+                self.output_cb("Unknown command: %s  (Did you mean %s?)" % (command, suggestion))
+            else:
+                self.output_cb("Unknown command: %s" % command)
             return "continue"
 
     # ------------------------------------------------------------------
@@ -1240,8 +1925,8 @@ class TempleCodeEngine(object):
         if suppress:
             text = text[:-1].strip()
 
-        # Handle TAB and SPC
-        parts = re.split(r"(?:;|,)", text)
+        # Split on ; and , respecting parens/brackets/quotes
+        parts = self._split_print_args(text)
         result = ""
         for i, part in enumerate(parts):
             part = part.strip()
@@ -1254,6 +1939,35 @@ class TempleCodeEngine(object):
 
         self.output_cb(result)
         return "continue"
+
+    @staticmethod
+    def _split_print_args(text):
+        """Split PRINT arguments on ; and , respecting parens and quotes."""
+        parts = []
+        current = []
+        depth = 0
+        in_string = False
+        for ch in text:
+            if ch == '"':
+                in_string = not in_string
+                current.append(ch)
+            elif not in_string:
+                if ch in "([":
+                    depth += 1
+                    current.append(ch)
+                elif ch in ")]":
+                    depth -= 1
+                    current.append(ch)
+                elif ch in ",;" and depth == 0:
+                    parts.append("".join(current))
+                    current = []
+                else:
+                    current.append(ch)
+            else:
+                current.append(ch)
+        if current:
+            parts.append("".join(current))
+        return parts
 
     def _basic_let(self, command):
         text = re.sub(r"^LET\s+", "", command, flags=re.IGNORECASE).strip()
@@ -1685,7 +2399,7 @@ class TempleCodeEngine(object):
         return "continue"
 
     def _basic_incr_decr(self, command, delta):
-        m = re.match(r"(?:INCR|DECR)\s+(\w+)(?:\s*,?\s*(.+))?", command, re.IGNORECASE)
+        m = re.match(r"(?:INCR?|DECR?)\s+(\w+)(?:\s*,?\s*(.+))?", command, re.IGNORECASE)
         if m:
             var = m.group(1).upper()
             amt = delta
@@ -1733,6 +2447,127 @@ class TempleCodeEngine(object):
             targets = [t.strip() for t in m.group(2).split(",")]
             if 1 <= idx <= len(targets):
                 return self._basic_goto("GOTO %s" % targets[idx - 1])
+            return "continue"
+        m = re.match(r"ON\s+(.+?)\s+GOSUB\s+(.+)", command, re.IGNORECASE)
+        if m:
+            idx = int(float(self.evaluate(m.group(1))))
+            targets = [t.strip() for t in m.group(2).split(",")]
+            if 1 <= idx <= len(targets):
+                return self._basic_gosub("GOSUB %s" % targets[idx - 1])
+        return "continue"
+
+    def _basic_help(self):
+        """HELP -- print TempleCode quick reference."""
+        lines = [
+            "TempleCode HELP - available commands:",
+            "PRINT, LET, INPUT, IF, ELSE, FOR, NEXT, GOTO, GOSUB, RETURN",
+            "DIM, DATA, READ, RESTORE, END, STOP, SWAP, INCR, DECR",
+            "SELECT, CASE, DO/LOOP, WHILE/WEND, RANDOMIZE",
+            "LIST, SPLIT, JOIN, PUSH, POP, SHIFT, UNSHIFT, SORT, REVERSE, SPLICE",
+            "DICT, SET, GET, DELETE, RANGE, EVAL, UNSET, PROGRAMINFO",
+            "File I/O: OPEN, CLOSE, READLINE, WRITELINE, READFILE, WRITEFILE, APPENDFILE",
+            "FILEEXISTS, COPYFILE, DELETEFILE",
+            "Logo: FORWARD/FD, BACK/BK, LEFT/LT, RIGHT/RT, CIRCLE, RECT, PSET, SCREEN",
+            "PILOT: T:, A:, M:, Y:, N:, J:, C:, G:, S:, D:, P:, X:",
+            "Prolog: ASSERTA, ASSERTZ, RETRACT, QUERY, FACTS",
+            "Turbo: WRITE, WRITELN, READLN, INC, DEC, LOAD, SAVE, CHAIN, PAUSE",
+        ]
+        for line in lines:
+            self.output_cb(line)
+        return "continue"
+
+    def _basic_inkey(self):
+        """INKEY -- return next buffered key or empty string."""
+        if self.key_buffer:
+            self.output_cb(self.key_buffer.pop(0))
+        else:
+            k = self.key_cb()
+            self.output_cb(k if k else "")
+        return "continue"
+
+    def _basic_pause(self, command):
+        """PAUSE n -- hold execution for n milliseconds."""
+        text = re.sub(r'^PAUSE\s+', '', command, flags=re.IGNORECASE).strip()
+        try:
+            ms = int(float(self.evaluate(text))) if text else 1000
+            time.sleep(ms / 1000.0)
+        except Exception:
+            time.sleep(1.0)
+        return "continue"
+
+    def _basic_write(self, command):
+        """WRITE expr -- Turbo Pascal print (same line)."""
+        text = re.sub(r'^WRITE\s*', '', command, flags=re.IGNORECASE).strip()
+        if not text:
+            return "continue"
+        val = self.evaluate(text)
+        self.output_cb(str(val))
+        return "continue"
+
+    def _basic_writeln(self, command):
+        """WRITELN expr -- Turbo Pascal print with newline."""
+        text = re.sub(r'^WRITELN\s*', '', command, flags=re.IGNORECASE).strip()
+        if not text:
+            self.output_cb("")
+            return "continue"
+        return self._basic_print("PRINT " + text)
+
+    def _basic_readln(self, command):
+        """READLN var -- Turbo Pascal input alias."""
+        tail = re.sub(r'^READLN\s*', '', command, flags=re.IGNORECASE).strip()
+        return self._basic_input("INPUT " + tail)
+
+    def _basic_load(self, command):
+        """LOAD \"file\", var -- Turbo BASIC alias for READFILE."""
+        text = re.sub(r'^LOAD\s+', '', command, flags=re.IGNORECASE).strip()
+        return self._modern_readfile('READFILE ' + text)
+
+    def _basic_save(self, command):
+        """SAVE \"file\", expression -- Turbo BASIC alias for WRITEFILE."""
+        text = re.sub(r'^SAVE\s+', '', command, flags=re.IGNORECASE).strip()
+        return self._modern_writefile('WRITEFILE ' + text)
+
+    def _basic_chain(self, command):
+        """CHAIN \"filename\", var -- load a file."""
+        text = re.sub(r'^CHAIN\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = text.split(',', 1)
+        if len(parts) == 2:
+            return self._modern_readfile('READFILE %s, %s' % (parts[0].strip(), parts[1].strip()))
+        self.output_cb('CHAIN syntax: CHAIN "file", var')
+        return "continue"
+
+    def _basic_playnote(self, command):
+        """PLAYNOTE freq,duration  OR  SOUND freq,duration"""
+        text = re.sub(r'^(PLAYNOTE|SOUND)\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        if len(parts) < 2:
+            self.output_cb('PLAYNOTE syntax: PLAYNOTE freq,duration')
+            return "continue"
+        try:
+            freq = float(self.evaluate(parts[0]))
+            dur = float(self.evaluate(parts[1]))
+        except Exception:
+            self.output_cb('PLAYNOTE: frequency and duration must be numbers')
+            return "continue"
+        try:
+            import winsound
+            winsound.Beep(int(freq), int(dur))
+        except Exception:
+            self.output_cb("[SOUND] %sHz for %sms" % (freq, dur))
+        return "continue"
+
+    def _basic_tab(self, command):
+        """TAB n -- print spaces to column n."""
+        parts = command.split()
+        n = int(float(self.evaluate(parts[1]))) if len(parts) > 1 else 8
+        self.output_cb(" " * n)
+        return "continue"
+
+    def _basic_spc(self, command):
+        """SPC n -- print n spaces."""
+        parts = command.split()
+        n = int(float(self.evaluate(parts[1]))) if len(parts) > 1 else 1
+        self.output_cb(" " * n)
         return "continue"
 
     def _skip_block(self, end_marker):
@@ -2074,8 +2909,11 @@ class TempleCodeEngine(object):
         return "continue"
 
     def _modern_lambda(self, command):
+        """LAMBDA name(params) = expression  (single-line)
+        or multi-line: LAMBDA name(params) ... END LAMBDA"""
+        # Single-line: LAMBDA name(params) = expression
         m = re.match(r"LAMBDA\s+(\w+)\s*\(([^)]*)\)\s*=\s*(.*)", command, re.IGNORECASE)
-        if m:
+        if m and m.group(3).strip():
             name = m.group(1).upper()
             params = [p.strip().upper() for p in m.group(2).split(",") if p.strip()]
             body = m.group(3).strip()
@@ -2084,20 +2922,65 @@ class TempleCodeEngine(object):
                 "lambda_body": body,
                 "start": -1, "end": -1
             }
+            return "continue"
+
+        # Multi-line: LAMBDA name(params) ... END LAMBDA
+        m2 = re.match(r'LAMBDA\s+(\w+)\s*\(([^)]*)\)\s*$', command, re.IGNORECASE)
+        if not m2:
+            return "continue"
+        name = m2.group(1).upper()
+        params = [p.strip().upper() for p in m2.group(2).split(",") if p.strip()]
+        body_start = self.current_line + 1
+        depth = 1
+        self.current_line += 1
+        while self.current_line < len(self.program_lines):
+            _, lt = self.program_lines[self.current_line]
+            lu = lt.strip().upper() if lt else ""
+            if lu.startswith("LAMBDA ") and "=" not in lu:
+                depth += 1
+            elif lu == "END LAMBDA":
+                depth -= 1
+                if depth == 0:
+                    break
+            self.current_line += 1
+        body_end = self.current_line
+        self.func_defs[name] = {
+            "params": params,
+            "body_start": body_start,
+            "body_end": body_end,
+        }
         return "continue"
 
     def _eval_lambda(self, name, args):
-        """Evaluate a lambda function."""
+        """Evaluate a lambda function (single-line or multi-line)."""
         defn = self.func_defs.get(name)
-        if not defn or "lambda_body" not in defn:
+        if not defn:
             return 0
         saved = dict(self.variables)
         for i, p in enumerate(defn["params"]):
             if i < len(args):
                 self.variables[p] = args[i]
-        result = self.evaluate(defn["lambda_body"])
+
+        # Single-line lambda
+        if "lambda_body" in defn:
+            result = self.evaluate(defn["lambda_body"])
+            self.variables = saved
+            return result
+
+        # Multi-line lambda
+        self.return_value = None
+        line = defn.get("body_start", defn.get("start", 0) + 1)
+        end = defn.get("body_end", defn.get("end", len(self.program_lines)))
+        while line < end:
+            _, cmd = self.program_lines[line]
+            if cmd and cmd.strip():
+                r = self._execute(cmd.strip())
+                if r == "return":
+                    break
+            line += 1
+        rv = self.return_value
         self.variables = saved
-        return result
+        return rv if rv is not None else 0
 
     def _modern_map(self, command):
         m = re.match(r"MAP\s+(\w+)\s+ON\s+(\w+)\s+INTO\s+(\w+)", command, re.IGNORECASE)
@@ -2166,14 +3049,59 @@ class TempleCodeEngine(object):
         return "continue"
 
     def _modern_regex(self, command):
+        """REGEX MATCH|REPLACE|FIND|SPLIT ..."""
         rest = re.sub(r"^REGEX\s+", "", command, flags=re.IGNORECASE).strip()
-        m = re.match(r"MATCH\s+(.+?)\s+IN\s+(.+?)\s+INTO\s+(\w+)", rest, re.IGNORECASE)
-        if m:
-            pattern = str(self.evaluate(m.group(1).strip()))
-            text = str(self.evaluate(m.group(2).strip()))
-            var = m.group(3).upper()
-            hit = re.search(pattern, text, re.IGNORECASE)
-            self.variables[var] = hit.group(0) if hit else ""
+        upper_rest = rest.upper()
+
+        if upper_rest.startswith("MATCH"):
+            m = re.match(r'MATCH\s+"([^"]+)"\s+IN\s+(.+?)\s+INTO\s+(\w+)', rest, re.IGNORECASE)
+            if not m:
+                m = re.match(r'MATCH\s+(.+?)\s+IN\s+(.+?)\s+INTO\s+(\w+)', rest, re.IGNORECASE)
+            if m:
+                pattern = str(self.evaluate(m.group(1).strip()))
+                text = str(self.evaluate(m.group(2).strip()))
+                var = m.group(3).upper()
+                hit = re.search(pattern, text, re.IGNORECASE)
+                if hit:
+                    self.variables[var] = hit.group(0)
+                    self.variables[var + "_POS"] = hit.start()
+                    self.match_flag = True
+                else:
+                    self.variables[var] = ""
+                    self.variables[var + "_POS"] = -1
+                    self.match_flag = False
+            return "continue"
+
+        elif upper_rest.startswith("REPLACE"):
+            m = re.match(
+                r'REPLACE\s+"([^"]+)"\s+WITH\s+"([^"]*)"\s+IN\s+(.+?)\s+INTO\s+(\w+)',
+                rest, re.IGNORECASE)
+            if m:
+                pattern = m.group(1)
+                replacement = m.group(2)
+                text = str(self.evaluate(m.group(3).strip()))
+                var = m.group(4).upper()
+                self.variables[var] = re.sub(pattern, replacement, text)
+            return "continue"
+
+        elif upper_rest.startswith("FIND"):
+            m = re.match(r'FIND\s+"([^"]+)"\s+IN\s+(.+?)\s+INTO\s+(\w+)', rest, re.IGNORECASE)
+            if m:
+                pattern = m.group(1)
+                text = str(self.evaluate(m.group(2).strip()))
+                list_name = m.group(3).upper()
+                self.lists[list_name] = re.findall(pattern, text)
+            return "continue"
+
+        elif upper_rest.startswith("SPLIT"):
+            m = re.match(r'SPLIT\s+"([^"]+)"\s+IN\s+(.+?)\s+INTO\s+(\w+)', rest, re.IGNORECASE)
+            if m:
+                pattern = m.group(1)
+                text = str(self.evaluate(m.group(2).strip()))
+                list_name = m.group(3).upper()
+                self.lists[list_name] = re.split(pattern, text)
+            return "continue"
+
         return "continue"
 
     def _modern_split(self, command):
@@ -2193,6 +3121,430 @@ class TempleCodeEngine(object):
             sep = m.group(2)
             dest = m.group(3).upper()
             self.variables[dest] = sep.join(str(x) for x in src)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  New modern extensions: SHIFT / UNSHIFT / SPLICE
+    # ------------------------------------------------------------------
+
+    def _modern_shift(self, command):
+        """SHIFT list_name [, var_name] -- remove first element."""
+        text = re.sub(r'^SHIFT\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        name = parts[0].upper()
+        if name not in self.lists or not self.lists[name]:
+            return "continue"
+        val = self.lists[name].pop(0)
+        if len(parts) > 1:
+            self.variables[parts[1].upper()] = val
+        return "continue"
+
+    def _modern_unshift(self, command):
+        """UNSHIFT list_name, value -- prepend to list."""
+        text = re.sub(r'^UNSHIFT\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = _smart_split(text, ",")
+        if len(parts) < 2:
+            return "continue"
+        name = parts[0].strip().upper()
+        if name not in self.lists:
+            self.lists[name] = []
+        for v in reversed(parts[1:]):
+            self.lists[name].insert(0, self.evaluate(v.strip()))
+        return "continue"
+
+    def _modern_splice(self, command):
+        """SPLICE list_name, start, count [, val1, val2, ...]"""
+        text = re.sub(r'^SPLICE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = _smart_split(text, ",")
+        if len(parts) < 3:
+            return "continue"
+        name = parts[0].strip().upper()
+        start = int(float(self.evaluate(parts[1].strip())))
+        count = int(float(self.evaluate(parts[2].strip())))
+        inserts = [self.evaluate(p.strip()) for p in parts[3:]]
+        if name in self.lists:
+            del self.lists[name][start:start + count]
+            for i, v in enumerate(inserts):
+                self.lists[name].insert(start + i, v)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  STRUCT (multi-line with FIELD/METHOD/END METHOD/END STRUCT)
+    # ------------------------------------------------------------------
+
+    def _modern_struct(self, command):
+        """STRUCT name = field1, field2  or multi-line STRUCT."""
+        text = re.sub(r'^STRUCT\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # Single-line: STRUCT name = field1, field2
+        m = re.match(r'(\w+)\s*=\s*(.*)', text)
+        if m:
+            name = m.group(1).upper()
+            fields = [f.strip().upper() for f in m.group(2).split(",") if f.strip()]
+            self.variables["__STRUCT_" + name] = fields
+            return "continue"
+
+        # Multi-line: STRUCT name ... END STRUCT
+        m2 = re.match(r'(\w+)\s*$', text)
+        if not m2:
+            return "continue"
+        name = m2.group(1).upper()
+        fields = []
+        methods = {}
+
+        self.current_line += 1
+        while self.current_line < len(self.program_lines):
+            _, lt = self.program_lines[self.current_line]
+            lu = lt.strip().upper() if lt else ""
+            if lu == "END STRUCT":
+                break
+
+            fm = re.match(r'FIELD\s+(.*)', lt.strip(), re.IGNORECASE)
+            if fm:
+                fields.extend(f.strip().upper() for f in fm.group(1).split(",") if f.strip())
+                self.current_line += 1
+                continue
+
+            mm = re.match(r'METHOD\s+(\w+)\s*\(([^)]*)\)', lt.strip(), re.IGNORECASE)
+            if mm:
+                mname = mm.group(1).upper()
+                mparams = [p.strip().upper() for p in mm.group(2).split(",") if p.strip()]
+                body_start = self.current_line + 1
+                depth = 1
+                self.current_line += 1
+                while self.current_line < len(self.program_lines):
+                    _, mlt = self.program_lines[self.current_line]
+                    mlu = mlt.strip().upper() if mlt else ""
+                    if mlu.startswith("METHOD "):
+                        depth += 1
+                    elif mlu == "END METHOD":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    self.current_line += 1
+                body_end = self.current_line
+                methods[mname] = {"params": mparams, "body_start": body_start, "body_end": body_end}
+                self.current_line += 1
+                continue
+
+            self.current_line += 1
+
+        self.variables["__STRUCT_" + name] = fields
+        if methods:
+            self.variables["__STRUCT_METHODS_" + name] = methods
+            for mname, mdef in methods.items():
+                func_name = "%s_%s" % (name, mname)
+                self.func_defs[func_name] = mdef
+        return "continue"
+
+    def _modern_new(self, command):
+        """NEW struct_name AS var_name -- create instance of struct."""
+        m = re.match(r'NEW\s+(\w+)\s+AS\s+(\w+)', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        struct_name = m.group(1).upper()
+        var_name = m.group(2).upper()
+        fields = self.variables.get("__STRUCT_" + struct_name)
+        if not fields:
+            self.output_cb("Undefined struct: %s" % struct_name)
+            return "continue"
+        instance = {}
+        for f in fields:
+            instance[f] = 0
+        instance["__TYPE__"] = struct_name
+        self.dicts[var_name] = instance
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  IMPORT
+    # ------------------------------------------------------------------
+
+    def _modern_import(self, command):
+        """IMPORT \"filename.tc\" -- include and execute another file."""
+        m = re.match(r'IMPORT\s+"([^"]+)"', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        filename = m.group(1)
+        if filename in self.imported_modules:
+            return "continue"
+        self.imported_modules.add(filename)
+        try:
+            f = open(filename, "r")
+            module_code = f.read()
+            f.close()
+            for raw_line in module_code.strip().split("\n"):
+                line_text = raw_line.strip()
+                if line_text:
+                    self._execute(line_text)
+        except IOError:
+            self.output_cb("Module not found: %s" % filename)
+        except Exception as e:
+            self.output_cb("Import error: %s" % e)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  RANGE
+    # ------------------------------------------------------------------
+
+    def _modern_range(self, command):
+        """RANGE list_name, start, end [, step]"""
+        text = re.sub(r'^RANGE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = _smart_split(text, ",")
+        if len(parts) < 3:
+            return "continue"
+        name = parts[0].strip().upper()
+        start = int(float(self.evaluate(parts[1].strip())))
+        end = int(float(self.evaluate(parts[2].strip())))
+        step = int(float(self.evaluate(parts[3].strip()))) if len(parts) > 3 else (1 if end >= start else -1)
+        if step == 0:
+            return "continue"
+        if step > 0:
+            rng = list(range(start, end + 1, step))
+        else:
+            rng = list(range(start, end - 1, step))
+        self.lists[name] = rng
+        self.variables[name] = rng
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  File I/O: OPEN / CLOSE / READLINE / WRITELINE / READFILE / WRITEFILE / APPENDFILE
+    # ------------------------------------------------------------------
+
+    def _modern_open(self, command):
+        """OPEN \"filename\" FOR INPUT|OUTPUT|APPEND AS #n"""
+        m = re.match(
+            r'OPEN\s+"([^"]+)"\s+FOR\s+(INPUT|OUTPUT|APPEND)\s+AS\s+#?(\d+)',
+            command, re.IGNORECASE
+        )
+        if not m:
+            self.output_cb('OPEN syntax: OPEN "file" FOR INPUT|OUTPUT|APPEND AS #n')
+            return "continue"
+        filename = m.group(1)
+        mode_str = m.group(2).upper()
+        handle = int(m.group(3))
+        mode_map = {"INPUT": "r", "OUTPUT": "w", "APPEND": "a"}
+        try:
+            self.file_handles[handle] = open(filename, mode_map[mode_str])
+        except Exception as e:
+            self.output_cb("File error: %s" % e)
+        return "continue"
+
+    def _modern_close(self, command):
+        """CLOSE #n  or  CLOSE ALL"""
+        text = re.sub(r'^CLOSE\s+', '', command, flags=re.IGNORECASE).strip()
+        if text.upper() == "ALL":
+            for fh in self.file_handles.values():
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            self.file_handles.clear()
+        else:
+            try:
+                handle = int(text.lstrip("#"))
+            except ValueError:
+                return "continue"
+            if handle in self.file_handles:
+                try:
+                    self.file_handles[handle].close()
+                except Exception:
+                    pass
+                del self.file_handles[handle]
+        return "continue"
+
+    def _modern_readline(self, command):
+        """READLINE #n, var_name"""
+        text = re.sub(r'^READLINE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = [p.strip() for p in text.split(",")]
+        if len(parts) < 2:
+            return "continue"
+        handle = int(parts[0].lstrip("#"))
+        var = parts[1].upper()
+        fh = self.file_handles.get(handle)
+        if fh:
+            line = fh.readline()
+            if line:
+                self.variables[var] = line.rstrip("\n\r")
+                self.variables["EOF"] = 0
+            else:
+                self.variables[var] = ""
+                self.variables["EOF"] = 1
+        return "continue"
+
+    def _modern_writeline(self, command):
+        """WRITELINE #n, expression"""
+        text = re.sub(r'^WRITELINE\s+', '', command, flags=re.IGNORECASE).strip()
+        parts = _smart_split(text, ",")
+        if len(parts) < 2:
+            return "continue"
+        handle = int(parts[0].strip().lstrip("#"))
+        val = self.evaluate(",".join(parts[1:]).strip())
+        fh = self.file_handles.get(handle)
+        if fh:
+            fh.write(str(val) + "\n")
+        return "continue"
+
+    def _modern_readfile(self, command):
+        """READFILE \"filename\", var_name"""
+        m = re.match(r'READFILE\s+"([^"]+)"\s*,\s*(\w+)', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        filename = m.group(1)
+        var = m.group(2).upper()
+        try:
+            f = open(filename, "r")
+            self.variables[var] = f.read()
+            f.close()
+        except Exception as e:
+            self.output_cb("File error: %s" % e)
+            self.variables[var] = ""
+        return "continue"
+
+    def _modern_writefile(self, command):
+        """WRITEFILE \"filename\", expression"""
+        m = re.match(r'WRITEFILE\s+"([^"]+)"\s*,\s*(.*)', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        filename = m.group(1)
+        val = self.evaluate(m.group(2).strip())
+        try:
+            f = open(filename, "w")
+            f.write(str(val))
+            f.close()
+        except Exception as e:
+            self.output_cb("File error: %s" % e)
+        return "continue"
+
+    def _modern_appendfile(self, command):
+        """APPENDFILE \"filename\", expression"""
+        m = re.match(r'APPENDFILE\s+"([^"]+)"\s*,\s*(.*)', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        filename = m.group(1)
+        val = self.evaluate(m.group(2).strip())
+        try:
+            f = open(filename, "a")
+            f.write(str(val) + "\n")
+            f.close()
+        except Exception as e:
+            self.output_cb("File error: %s" % e)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  FILEEXISTS / COPYFILE / DELETEFILE
+    # ------------------------------------------------------------------
+
+    def _modern_fileexists(self, command):
+        """FILEEXISTS \"filename\", var"""
+        m = re.match(r'FILEEXISTS\s+"([^"]+)"\s*,\s*(\w+)', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        self.variables[m.group(2).upper()] = 1 if os.path.exists(m.group(1)) else 0
+        return "continue"
+
+    def _modern_copyfile(self, command):
+        """COPYFILE \"source\", \"dest\""""
+        m = re.match(r'COPYFILE\s+"([^"]+)"\s*,\s*"([^"]+)"', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        try:
+            if _shutil:
+                _shutil.copyfile(m.group(1), m.group(2))
+            else:
+                src = open(m.group(1), "rb")
+                dst = open(m.group(2), "wb")
+                dst.write(src.read())
+                src.close()
+                dst.close()
+        except Exception as e:
+            self.output_cb("File error: %s" % e)
+        return "continue"
+
+    def _modern_deletefile(self, command):
+        """DELETEFILE \"filename\""""
+        m = re.match(r'DELETEFILE\s+"([^"]+)"', command, re.IGNORECASE)
+        if not m:
+            return "continue"
+        try:
+            os.remove(m.group(1))
+        except Exception as e:
+            self.output_cb("File error: %s" % e)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  UNSET / EVAL / PROGRAMINFO
+    # ------------------------------------------------------------------
+
+    def _modern_unset(self, command):
+        """UNSET var -- remove variable."""
+        text = re.sub(r'^UNSET\s+', '', command, flags=re.IGNORECASE).strip().upper()
+        self.variables.pop(text, None)
+        self.lists.pop(text, None)
+        self.dicts.pop(text, None)
+        return "continue"
+
+    def _modern_eval(self, command):
+        """EVAL expr [AS var]"""
+        text = re.sub(r'^EVAL\s+', '', command, flags=re.IGNORECASE).strip()
+        as_m = re.match(r'(.+?)\s+AS\s+(\w+)$', text, re.IGNORECASE)
+        if as_m:
+            val = self.evaluate(as_m.group(1).strip())
+            self.variables[as_m.group(2).upper()] = val
+        else:
+            self.output_cb(str(self.evaluate(text)))
+        return "continue"
+
+    def _modern_programinfo(self, command):
+        """PROGRAMINFO [INTO var]"""
+        m = re.match(r'PROGRAMINFO(?:\s+INTO\s+(\w+))?', command, re.IGNORECASE)
+        info = "lines=%d vars=%d lists=%d dicts=%d" % (
+            len(self.program_lines), len(self.variables),
+            len(self.lists), len(self.dicts))
+        var = m.group(1).upper() if m and m.group(1) else None
+        if var:
+            self.variables[var] = info
+        else:
+            self.output_cb(info)
+        return "continue"
+
+    # ------------------------------------------------------------------
+    #  Prolog-style commands
+    # ------------------------------------------------------------------
+
+    def _prolog_assert(self, cmd, command):
+        """ASSERTA/ASSERTZ fact -- add fact to knowledge base."""
+        term = re.sub(r'^(ASSERTA|ASSERTZ)\s*', '', command, flags=re.IGNORECASE).strip()
+        if not term:
+            return "continue"
+        if cmd == "ASSERTA":
+            self.prolog_facts.insert(0, term)
+        else:
+            self.prolog_facts.append(term)
+        return "continue"
+
+    def _prolog_retract(self, command):
+        """RETRACT fact -- remove fact from knowledge base."""
+        term = re.sub(r'^RETRACT\s*', '', command, flags=re.IGNORECASE).strip()
+        if term in self.prolog_facts:
+            self.prolog_facts.remove(term)
+            self.output_cb("TRUE")
+        else:
+            self.output_cb("FALSE")
+        return "continue"
+
+    def _prolog_query(self, command):
+        """QUERY fact -- check if fact exists."""
+        term = re.sub(r'^QUERY\s*', '', command, flags=re.IGNORECASE).strip()
+        self.output_cb("TRUE" if term in self.prolog_facts else "FALSE")
+        return "continue"
+
+    def _prolog_facts(self):
+        """FACTS -- list all facts."""
+        if not self.prolog_facts:
+            self.output_cb("(no facts)")
+        else:
+            for fact in self.prolog_facts:
+                self.output_cb(fact)
         return "continue"
 
     # ==================================================================

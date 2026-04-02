@@ -160,6 +160,15 @@ class TempleCodeInterpreter:
         # Pre-filled input buffer (used by tests / queued input)
         self.input_buffer: list = []
 
+        # Key buffer for INKEY$ (filled by GUI key events)
+        from collections import deque
+        self._key_buffer: deque = deque(maxlen=64)
+
+        # Compiled-expression cache (avoids repeated compile() for the same
+        # expression string inside eval loops etc.)
+        from core.optimizations.performance_optimizer import ExpressionCache
+        self._expr_cache = ExpressionCache(max_size=512)
+
         # Program execution state
         self.variables: dict = {}
         self.labels: dict = {}
@@ -178,6 +187,7 @@ class TempleCodeInterpreter:
         # Debugging
         self.debug_mode: bool = False
         self.breakpoints: set = set()
+        self.debug_controller = None  # optional DebugController for step debugging
 
         # Turtle graphics (lazy-initialised)
         self.turtle_graphics = None
@@ -607,17 +617,20 @@ class TempleCodeInterpreter:
         self.return_value = None
         self.lists = {}
         self.dicts = {}
-        # Close any open file handles
+        self._close_file_handles()
+        self.try_stack = []
+        self.last_error = ""
+        self.constants = set()
+        self.imported_modules = set()
+
+    def _close_file_handles(self):
+        """Close and clear any open file handles."""
         for fh in self.file_handles.values():
             try:
                 fh.close()
             except Exception:
                 pass
         self.file_handles = {}
-        self.try_stack = []
-        self.last_error = ""
-        self.constants = set()
-        self.imported_modules = set()
 
     # ==================================================================
     #  Output Helpers
@@ -841,7 +854,12 @@ class TempleCodeInterpreter:
         expr = re.sub(r"RIGHT\$\(([^)]+)\)", lambda m: _lr_fn(m, True), expr)
 
         try:
-            return eval(expr, safe_dict)  # noqa: S307
+            # Cache compiled code objects to avoid repeated parsing
+            code_obj = self._expr_cache.get(expr)
+            if code_obj is None:
+                code_obj = compile(expr, "<expr>", "eval")
+                self._expr_cache.put(expr, code_obj)
+            return eval(code_obj, safe_dict)  # noqa: S307
         except ZeroDivisionError:
             self.log_error("Division by zero in expression", None)
             return "ERROR: Division by zero"
@@ -892,9 +910,9 @@ class TempleCodeInterpreter:
                 if re.search(r"[\(\)\+\-\*/%<>=]", tok):
                     try:
                         text = text.replace(f"*{tok}*", str(self.evaluate_expression(tok)))
-                    except Exception:
+                    except (ValueError, TypeError, SyntaxError):
                         pass
-        except Exception:
+        except (TypeError, re.error):
             pass
         return text
 
@@ -1062,25 +1080,38 @@ class TempleCodeInterpreter:
         max_iterations = 100_000
         iterations = 0
 
+        # Cache hot flags outside the loop to avoid repeated attribute lookups
+        profiler = self.profiler
+        profiler_enabled = profiler is not None and profiler.enabled
+        has_debug_ctrl = self.debug_controller is not None
+        program_lines = self.program_lines
+        num_lines = len(program_lines)
+
         # Reset profiler if attached
-        if self.profiler and self.profiler.enabled:
-            self.profiler.reset()
+        if profiler_enabled:
+            profiler.reset()
 
         try:
-            while (self.current_line < len(self.program_lines)
+            while (self.current_line < num_lines
                    and self.running
                    and iterations < max_iterations):
                 iterations += 1
 
-                if self.debug_mode and self.current_line in self.breakpoints:
-                    self.log_output(f"🔍 DEBUG: Breakpoint hit at line {self.current_line + 1}")
-                    # Show watch expressions at breakpoint
-                    if self.watch_manager and self.watch_manager.expressions:
-                        self.log_output("👁  Watches:")
-                        self.log_output(self.watch_manager.format_report(self))
-                    break
+                # Debug controller hook (step debugger)
+                if has_debug_ctrl and self.debug_controller.is_active:
+                    if not self.debug_controller.check_pause(self):
+                        break  # debug session stopped
 
-                _ln, command = self.program_lines[self.current_line]
+                if self.debug_mode and self.current_line in self.breakpoints:
+                    if not has_debug_ctrl:
+                        # Legacy breakpoint handling (no controller — just stop)
+                        self.log_output(f"🔍 DEBUG: Breakpoint hit at line {self.current_line + 1}")
+                        if self.watch_manager and self.watch_manager.expressions:
+                            self.log_output("👁  Watches:")
+                            self.log_output(self.watch_manager.format_report(self))
+                        break
+
+                _ln, command = program_lines[self.current_line]
                 if not command.strip():
                     self.current_line += 1
                     continue
@@ -1091,15 +1122,15 @@ class TempleCodeInterpreter:
                     )
 
                 # Profiler: begin line
-                if self.profiler and self.profiler.enabled:
-                    self.profiler.begin_line(self.current_line + 1, command.strip())
+                if profiler_enabled:
+                    profiler.begin_line(self.current_line + 1, command.strip())
 
                 try:
                     result = self.execute_line(command)
                 except Exception as e:
                     # Profiler: end line even on error
-                    if self.profiler and self.profiler.enabled:
-                        self.profiler.end_line(self.current_line + 1)
+                    if profiler_enabled:
+                        profiler.end_line(self.current_line + 1)
                     self.log_error(
                         f"Unexpected error at line {self.current_line + 1}: {e}",
                         self.current_line + 1,
@@ -1110,8 +1141,8 @@ class TempleCodeInterpreter:
                     continue
 
                 # Profiler: end line
-                if self.profiler and self.profiler.enabled:
-                    self.profiler.end_line(self.current_line + 1)
+                if profiler_enabled:
+                    profiler.end_line(self.current_line + 1)
 
                 if result == "end":
                     break
@@ -1182,9 +1213,10 @@ class TempleCodeInterpreter:
             )
         finally:
             self.running = False
+            self._close_file_handles()
             # Show profiler report if active
-            if self.profiler and self.profiler.enabled and self.profiler.get_stats():
-                self.log_output("\n" + self.profiler.format_report())
+            if profiler_enabled and profiler.get_stats():
+                self.log_output("\n" + profiler.format_report())
             if self.error_history:
                 self.log_output(f"📊 Execution completed with {len(self.error_history)} error(s)")
             else:

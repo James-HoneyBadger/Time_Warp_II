@@ -36,6 +36,38 @@ import random
 import time
 
 
+def _levenshtein(a: str, b: str) -> int:
+    """Compute Levenshtein edit distance between two strings."""
+    if len(a) < len(b):
+        return _levenshtein(b, a)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1,
+                            prev[j] + (0 if ca == cb else 1)))
+        prev = curr
+    return prev[-1]
+
+
+def _suggest_command(cmd: str, keywords=None) -> str | None:
+    """Return the closest keyword if within edit distance 2, else None."""
+    if keywords is None:
+        from core.config import KEYWORDS
+        keywords = KEYWORDS
+    cmd_upper = cmd.upper()
+    best, best_dist = None, 3  # threshold
+    for kw in keywords:
+        if ":" in kw:  # skip PILOT single-char commands
+            continue
+        d = _levenshtein(cmd_upper, kw)
+        if d < best_dist:
+            best, best_dist = kw, d
+    return best
+
+
 class TempleCodeExecutor:
     """
     Unified executor for the TempleCode language.
@@ -49,6 +81,7 @@ class TempleCodeExecutor:
 
         # PILOT state
         self.arrays = {}
+        self._pilot_array_upper_bounds = {}
         self.return_stack = []
         self.system_vars = {
             "answer": "",
@@ -63,6 +96,121 @@ class TempleCodeExecutor:
 
         # Turbo Prolog-style knowledge base (simple fact storage)
         self.prolog_facts = []
+
+        # Build BASIC dispatch table  (cmd → handler(command))
+        # Handlers that take only `command`:
+        self._basic_dispatch: dict[str, Any] = {
+            "PRINT": self._basic_print,
+            "?": self._basic_print,
+            "LET": self._basic_let,
+            "INPUT": self._basic_input,
+            "IF": self._basic_if,
+            "FOR": self._basic_for,
+            "NEXT": self._basic_next,
+            "GOTO": self._basic_goto,
+            "GOSUB": self._basic_gosub,
+            "RETURN": self._modern_return,
+            "DIM": self._basic_dim,
+            "READ": self._basic_read,
+            "RANGE": self._modern_range,
+            "FILEEXISTS": self._modern_fileexists,
+            "COPYFILE": self._modern_copyfile,
+            "DELETEFILE": self._modern_deletefile,
+            "UNSET": self._modern_unset,
+            "EVAL": self._modern_eval,
+            "PROGRAMINFO": self._modern_programinfo,
+            "DO": self._basic_do,
+            "LOOP": self._basic_loop,
+            "WHILE": self._basic_while,
+            "EXIT": self._basic_exit,
+            "SELECT": self._basic_select,
+            "CASE": self._basic_case,
+            "SWAP": self._basic_swap,
+            "WRITELN": self._basic_writeln,
+            "WRITE": self._basic_write,
+            "READLN": self._basic_readln,
+            "LOAD": self._basic_load,
+            "SAVE": self._basic_save,
+            "CHAIN": self._basic_chain,
+            "PAUSE": self._basic_pause,
+            "PARAMSTR": self._turbo_pascal_paramstr,
+            "ELSEIF": self._basic_elseif,
+            "ON": self._basic_on,
+            "PLAYNOTE": self._basic_playnote,
+            "SOUND": self._basic_playnote,
+            "TAB": self._basic_tab,
+            "SPC": self._basic_spc,
+            "SUB": self._modern_sub_define,
+            "FUNCTION": self._modern_function_define,
+            "CALL": self._modern_call,
+            "LIST": self._modern_list,
+            "SPLIT": self._modern_split_stmt,
+            "JOIN": self._modern_join_stmt,
+            "PUSH": self._modern_push,
+            "POP": self._modern_pop,
+            "SHIFT": self._modern_shift,
+            "UNSHIFT": self._modern_unshift,
+            "SORT": self._modern_sort,
+            "REVERSE": self._modern_reverse,
+            "SPLICE": self._modern_splice,
+            "DICT": self._modern_dict,
+            "SET": self._modern_set,
+            "GET": self._modern_get,
+            "DELETE": self._modern_delete,
+            "OPEN": self._modern_open,
+            "CLOSE": self._modern_close,
+            "READLINE": self._modern_readline,
+            "WRITELINE": self._modern_writeline,
+            "READFILE": self._modern_readfile,
+            "WRITEFILE": self._modern_writefile,
+            "APPENDFILE": self._modern_appendfile,
+            "TRY": self._modern_try,
+            "CATCH": self._modern_catch,
+            "THROW": self._modern_throw,
+            "FOREACH": self._modern_foreach,
+            "CONST": self._modern_const,
+            "TYPEOF": self._modern_typeof,
+            "ASSERT": self._modern_assert,
+            "IMPORT": self._modern_import,
+            "PRINTF": self._modern_printf,
+            "JSON": self._modern_json,
+            "REGEX": self._modern_regex,
+            "ENUM": self._modern_enum,
+            "STRUCT": self._modern_struct,
+            "NEW": self._modern_new,
+            "LAMBDA": self._modern_lambda,
+            "MAP": self._modern_map,
+            "FILTER": self._modern_filter,
+            "REDUCE": self._modern_reduce,
+            "RANDOMIZE": self._basic_randomize,
+        }
+        # Aliases
+        self._basic_dispatch["DELAY"] = self._basic_delay
+        self._basic_dispatch["SLEEP"] = self._basic_delay
+        self._basic_dispatch["INCR"] = lambda cmd: self._basic_incr_decr(cmd, 1)
+        self._basic_dispatch["INC"] = lambda cmd: self._basic_incr_decr(cmd, 1)
+        self._basic_dispatch["DECR"] = lambda cmd: self._basic_incr_decr(cmd, -1)
+        self._basic_dispatch["DEC"] = lambda cmd: self._basic_incr_decr(cmd, -1)
+
+        # Commands that need special argument handling (no `command` arg)
+        self._basic_dispatch_noarg: dict[str, Any] = {
+            "ELSE": self._basic_else,
+            "WEND": self._basic_wend,
+            "HELP": self._basic_help,
+            "INKEY": self._basic_inkey,
+            "RESTORE": self._basic_restore,
+            "PARAMCOUNT": self._turbo_pascal_paramcount,
+            "BEEP": self._basic_beep,
+            "FACTS": self._prolog_facts,
+        }
+
+        # Prolog-style (cmd ↦ handler that takes (cmd_keyword, command))
+        self._prolog_dispatch = {
+            "ASSERTA": self._prolog_assert,
+            "ASSERTZ": self._prolog_assert,
+            "RETRACT": self._prolog_retract,
+            "QUERY": self._prolog_query,
+        }
 
     # ------------------------------------------------------------------
     #  Top-level dispatch
@@ -316,6 +464,7 @@ class TempleCodeExecutor:
         if m:
             name, size = m.group(1).upper(), int(m.group(2))
             self.arrays[name] = [0] * size
+            self._pilot_array_upper_bounds[name] = size
         return "continue"
 
     def _pilot_pause(self, arg):
@@ -862,11 +1011,34 @@ class TempleCodeExecutor:
 
     def _logo_screen(self, parts):
         self._ensure_turtle()
-        mode = parts[1] if len(parts) > 1 else ""
         tg = self.interpreter.turtle_graphics
-        if tg and tg.get("canvas"):
-            # no-op for now (stub), could trigger screen mode changes in GUI
-            self.interpreter.log_output(f"SCREEN mode: {mode}")
+        if not tg or not tg.get("canvas"):
+            return "continue"
+        canvas = tg["canvas"]
+        args = parts[1:] if len(parts) > 1 else []
+        if len(args) >= 2:
+            # SCREEN width height — resize canvas
+            try:
+                w = int(float(self._eval_logo_arg(parts, 1)))
+                h = int(float(self._eval_logo_arg(parts, 2)))
+                canvas.config(width=w, height=h)
+                tg["center_x"] = w // 2
+                tg["center_y"] = h // 2
+            except Exception:
+                pass
+        elif len(args) == 1:
+            mode = args[0].upper()
+            presets = {
+                "0": (320, 200), "1": (640, 480), "2": (800, 600),
+                "SMALL": (320, 200), "MEDIUM": (640, 480), "LARGE": (800, 600),
+            }
+            if mode in presets:
+                w, h = presets[mode]
+                canvas.config(width=w, height=h)
+                tg["center_x"] = w // 2
+                tg["center_y"] = h // 2
+            else:
+                self.interpreter.log_output(f"SCREEN: unknown mode '{mode}'")
         return "continue"
 
     def _logo_rect(self, parts):
@@ -947,8 +1119,52 @@ class TempleCodeExecutor:
         return "continue"
 
     def _logo_fill(self):
-        """Fill placeholder – real flood fill requires bitmap canvas."""
-        self.interpreter.log_output("FILL: (visual fill not supported in vector canvas)")
+        """FILL — flood fill the enclosed area at the turtle's position.
+
+        Snapshots the canvas to a PIL Image via PostScript, performs a
+        scanline flood fill using the current fill colour, and renders
+        the result back as a canvas image.  Falls back gracefully when
+        Pillow or Ghostscript is unavailable.
+        """
+        self._ensure_turtle()
+        tg = self.interpreter.turtle_graphics
+        if not tg or not tg.get("canvas"):
+            return "continue"
+        canvas = tg["canvas"]
+        fill_color = tg.get("fill_color") or tg.get("pen_color", "white")
+        # Turtle position in canvas coordinates
+        cx = int(tg["center_x"] + tg["x"])
+        cy = int(tg["center_y"] - tg["y"])
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            import io
+            # Snapshot via PostScript
+            canvas.update_idletasks()
+            ps_data = canvas.postscript(colormode="color")
+            img = Image.open(io.BytesIO(ps_data.encode("utf-8")))
+            img = img.convert("RGB")
+            # Resolve named colour to RGB tuple
+            try:
+                root = canvas.winfo_toplevel()
+                rgb = root.winfo_rgb(fill_color)
+                fill_rgb = (rgb[0] >> 8, rgb[1] >> 8, rgb[2] >> 8)
+            except Exception:
+                fill_rgb = (255, 255, 255)
+            # Flood-fill at turtle position
+            w, h = img.size
+            if 0 <= cx < w and 0 <= cy < h:
+                ImageDraw.floodfill(img, (cx, cy), fill_rgb, thresh=40)
+            # Render back onto canvas
+            photo = ImageTk.PhotoImage(img)
+            canvas.create_image(0, 0, anchor="nw", image=photo)
+            # Keep a reference so Tk doesn't garbage-collect the image
+            if not hasattr(canvas, '_fill_images'):
+                canvas._fill_images = []
+            canvas._fill_images.append(photo)
+        except ImportError:
+            self.interpreter.log_output("FILL: requires Pillow (pip install Pillow)")
+        except Exception as exc:
+            self.interpreter.log_output(f"FILL: {exc}")
         return "continue"
 
     # --- REPEAT ---
@@ -1181,64 +1397,36 @@ class TempleCodeExecutor:
     # ==================================================================
 
     def _dispatch_basic(self, command, first_word, upper_cmd):  # noqa: C901
-        """Route BASIC-style statements."""
+        """Route BASIC-style statements via dispatch table."""
         cmd = first_word.upper()
 
-        # Handle line-number prefixed commands
-        # (The interpreter parse_line already strips line numbers, but in case)
+        # --- Fast dict lookup for most commands ---
+        handler = self._basic_dispatch.get(cmd)
+        if handler is not None:
+            return handler(command)
 
-        if cmd == "PRINT" or cmd == "?":
-            return self._basic_print(command)
-        elif cmd == "LET":
-            return self._basic_let(command)
-        elif cmd == "INPUT":
-            return self._basic_input(command)
-        elif cmd == "IF":
-            return self._basic_if(command)
-        elif cmd == "ELSE":
-            return self._basic_else()
-        elif cmd == "FOR":
-            return self._basic_for(command)
-        elif cmd == "HELP":
-            return self._basic_help()
-        elif cmd == "NEXT":
-            return self._basic_next(command)
-        elif cmd == "GOTO":
-            return self._basic_goto(command)
-        elif cmd == "GOSUB":
-            return self._basic_gosub(command)
-        elif cmd == "RETURN":
-            return self._modern_return(command)
-        elif cmd == "DIM":
-            return self._basic_dim(command)
-        elif cmd == "REM" or cmd == "'":
+        handler_noarg = self._basic_dispatch_noarg.get(cmd)
+        if handler_noarg is not None:
+            return handler_noarg()
+
+        # Prolog-style commands need (keyword, command)
+        prolog_handler = self._prolog_dispatch.get(cmd)
+        if prolog_handler is not None:
+            if cmd in ("ASSERTA", "ASSERTZ"):
+                return prolog_handler(cmd, command)
+            return prolog_handler(command)
+
+        # --- Special-case commands with inline logic ---
+        if cmd == "REM" or cmd == "'":
             return "continue"
-        elif cmd == "END":
-            # Check for block-closing END variants
-            upper_cmd = command.upper().strip()
-            if upper_cmd == "END SELECT":
-                if self.interpreter.select_stack:
-                    self.interpreter.select_stack.pop()
-                return "continue"
-            elif upper_cmd == "END IF":
-                return "continue"  # Block IF closing — no-op
-            elif upper_cmd == "END SUB":
-                return "return"  # End of subroutine
-            elif upper_cmd == "END FUNCTION":
-                return "return"  # End of function
-            elif upper_cmd == "END TRY":
-                if self.interpreter.try_stack:
-                    self.interpreter.try_stack.pop()
-                return "continue"
-            else:
-                self.interpreter.running = False
-                return "end"
-        elif cmd == "STOP":
+        if cmd == "END":
+            return self._dispatch_end(command)
+        if cmd == "STOP":
             self.interpreter.running = False
             return "end"
-        elif cmd == "BREAK":
+        if cmd == "BREAK":
             return "break"
-        elif cmd == "CLS":
+        if cmd == "CLS":
             if hasattr(self.interpreter, 'output_widget') and self.interpreter.output_widget:
                 try:
                     self.interpreter.output_widget.delete("1.0", "end")
@@ -1247,247 +1435,71 @@ class TempleCodeExecutor:
             else:
                 self.interpreter.log_output("\n" * 25)
             return "continue"
-        elif cmd == "DATA":
+        if cmd == "DATA":
             return "continue"  # DATA lines are pre-parsed
-        elif cmd == "READ":
-            return self._basic_read(command)
-        elif cmd == "RANDOMIZE":
-            # Support RANDOMIZE, RANDOMIZE TIMER, or RANDOMIZE <seed>
-            rest = command[len("RANDOMIZE"):].strip().upper()
-            if not rest or rest == "TIMER":
-                random.seed()
-            else:
-                try:
-                    random.seed(int(float(self._eval_basic_expression(rest))))
-                except Exception:
-                    random.seed()
-            return "continue"
-        elif cmd == "RANGE":
-            return self._modern_range(command)
-        elif cmd == "FILEEXISTS":
-            return self._modern_fileexists(command)
-        elif cmd == "COPYFILE":
-            return self._modern_copyfile(command)
-        elif cmd == "DELETEFILE":
-            return self._modern_deletefile(command)
-        elif cmd == "UNSET":
-            return self._modern_unset(command)
-        elif cmd == "EVAL":
-            return self._modern_eval(command)
-        elif cmd == "PROGRAMINFO":
-            return self._modern_programinfo(command)
-        elif cmd == "RESTORE":
-            return self._basic_restore()
-        elif cmd == "DELAY" or cmd == "SLEEP":
-            return self._basic_delay(command)
-        elif cmd == "DO":
-            return self._basic_do(command)
-        elif cmd == "LOOP":
-            return self._basic_loop(command)
-        elif cmd == "WHILE":
-            return self._basic_while(command)
-        elif cmd == "WEND":
-            return self._basic_wend()
-        elif cmd == "EXIT":
-            return self._basic_exit(command)
-        elif cmd == "SELECT":
-            return self._basic_select(command)
-        elif cmd == "CASE":
-            return self._basic_case(command)
-        elif cmd == "SWAP":
-            return self._basic_swap(command)
-        elif cmd == "INCR":
-            return self._basic_incr_decr(command, 1)
-        elif cmd == "DECR":
-            return self._basic_incr_decr(command, -1)
-        elif cmd == "COLOR" or cmd == "COLOUR":
-            # Turtle color change, for BASIC-style usage
-            return self._logo_setcolor(command.split())
-        elif cmd == "WRITELN":
-            return self._basic_writeln(command)
-        elif cmd == "WRITE":
-            return self._basic_write(command)
-        elif cmd == "READLN":
-            return self._basic_readln(command)
-        elif cmd == "LOAD":
-            return self._basic_load(command)
-        elif cmd == "SAVE":
-            return self._basic_save(command)
-        elif cmd == "CHAIN":
-            return self._basic_chain(command)
-        elif cmd == "PAUSE":
-            return self._basic_pause(command)
-        elif cmd == "INKEY":
-            return self._basic_inkey()
-        elif cmd == "INC":
-            return self._basic_incr_decr(command, 1)
-        elif cmd == "DEC":
-            return self._basic_incr_decr(command, -1)
-        elif cmd == "PARAMCOUNT":
-            return self._turbo_pascal_paramcount()
-        elif cmd == "PARAMSTR":
-            return self._turbo_pascal_paramstr(command)
-        elif cmd == "ASSERTA" or cmd == "ASSERTZ":
-            return self._prolog_assert(cmd, command)
-        elif cmd == "RETRACT":
-            return self._prolog_retract(command)
-        elif cmd == "QUERY":
-            return self._prolog_query(command)
-        elif cmd == "FACTS":
-            return self._prolog_facts()
-        elif cmd == "ENDIF":
+        if cmd == "ENDIF":
             return "continue"  # Block IF closing — alias for END IF
-        elif cmd == "ELSEIF":
-            return self._basic_elseif(command)
-        elif cmd == "ON":
-            return self._basic_on(command)
-        elif cmd == "BEEP":
-            return self._basic_beep()
-        elif cmd == "PLAYNOTE" or cmd == "SOUND":
-            return self._basic_playnote(command)
-        elif cmd == "TAB":
-            return self._basic_tab(command)
-        elif cmd == "SPC":
-            return self._basic_spc(command)
-
-        # --- Modern language extensions ---
-        elif cmd == "SUB":
-            return self._modern_sub_define(command)
-        elif cmd == "FUNCTION":
-            return self._modern_function_define(command)
-        elif cmd == "CALL":
-            return self._modern_call(command)
-        elif cmd == "RETURN":
-            return self._modern_return(command)
-
-        # List operations
-        elif cmd == "LIST":
-            return self._modern_list(command)
-        elif cmd == "SPLIT":
-            return self._modern_split_stmt(command)
-        elif cmd == "JOIN":
-            return self._modern_join_stmt(command)
-        elif cmd == "PUSH":
-            return self._modern_push(command)
-        elif cmd == "POP":
-            return self._modern_pop(command)
-        elif cmd == "SHIFT":
-            return self._modern_shift(command)
-        elif cmd == "UNSHIFT":
-            return self._modern_unshift(command)
-        elif cmd == "SORT":
-            return self._modern_sort(command)
-        elif cmd == "REVERSE":
-            return self._modern_reverse(command)
-        elif cmd == "SPLICE":
-            return self._modern_splice(command)
-
-        # Dictionary operations
-        elif cmd == "DICT":
-            return self._modern_dict(command)
-        elif cmd == "SET":
-            return self._modern_set(command)
-        elif cmd == "GET":
-            return self._modern_get(command)
-        elif cmd == "DELETE":
-            return self._modern_delete(command)
-
-        # File I/O
-        elif cmd == "OPEN":
-            return self._modern_open(command)
-        elif cmd == "CLOSE":
-            return self._modern_close(command)
-        elif cmd == "READLINE":
-            return self._modern_readline(command)
-        elif cmd == "WRITELINE":
-            return self._modern_writeline(command)
-        elif cmd == "READFILE":
-            return self._modern_readfile(command)
-        elif cmd == "WRITEFILE":
-            return self._modern_writefile(command)
-        elif cmd == "APPENDFILE":
-            return self._modern_appendfile(command)
-
-        # Error handling
-        elif cmd == "TRY":
-            return self._modern_try(command)
-        elif cmd == "CATCH":
-            return self._modern_catch(command)
-        elif cmd == "THROW":
-            return self._modern_throw(command)
-
-        # Modern control flow
-        elif cmd == "FOREACH":
-            return self._modern_foreach(command)
-
-        # Constants & type operations
-        elif cmd == "CONST":
-            return self._modern_const(command)
-        elif cmd == "TYPEOF":
-            return self._modern_typeof(command)
-        elif cmd == "ASSERT":
-            return self._modern_assert(command)
-
-        # Module system
-        elif cmd == "IMPORT":
-            return self._modern_import(command)
-
-        # Formatted output
-        elif cmd == "PRINTF":
-            return self._modern_printf(command)
-
-        # JSON operations
-        elif cmd == "JSON":
-            return self._modern_json(command)
-
-        # Regex operations
-        elif cmd == "REGEX":
-            return self._modern_regex(command)
-
-        # ENUM
-        elif cmd == "ENUM":
-            return self._modern_enum(command)
-
-        # STRUCT
-        elif cmd == "STRUCT":
-            return self._modern_struct(command)
-        elif cmd == "NEW":
-            return self._modern_new(command)
-
-        # LAMBDA
-        elif cmd == "LAMBDA":
-            return self._modern_lambda(command)
-
-        # Functional list operations
-        elif cmd == "MAP":
-            return self._modern_map(command)
-        elif cmd == "FILTER":
-            return self._modern_filter(command)
-        elif cmd == "REDUCE":
-            return self._modern_reduce(command)
+        if cmd == "COLOR" or cmd == "COLOUR":
+            return self._logo_setcolor(command.split())
 
         # Turtle graphics commands accessible from BASIC style
-        elif cmd in ("FORWARD", "FD", "BACK", "BK", "BACKWARD",
-                     "LEFT", "LT", "RIGHT", "RT",
-                     "PENUP", "PU", "PENDOWN", "PD"):
+        if cmd in ("FORWARD", "FD", "BACK", "BK", "BACKWARD",
+                    "LEFT", "LT", "RIGHT", "RT",
+                    "PENUP", "PU", "PENDOWN", "PD"):
             return self._dispatch_logo(command, cmd)
 
         # Direct variable assignment: X = 5
-        elif "=" in command and not command.startswith("IF"):
+        if "=" in command and not command.startswith("IF"):
             return self._basic_let("LET " + command)
 
         # Math/string function calls as statements
-        elif cmd in ("SIN", "COS", "TAN", "SQRT", "ABS", "INT", "RND",
-                     "LOG", "EXP", "CEIL", "FIX", "BIN", "HEX", "OCT"):
+        if cmd in ("SIN", "COS", "TAN", "SQRT", "ABS", "INT", "RND",
+                    "LOG", "EXP", "CEIL", "FIX", "BIN", "HEX", "OCT"):
             return self._basic_math_func(command)
-        elif cmd in ("LEN", "MID", "LEFT", "RIGHT", "INSTR", "STR",
-                     "VAL", "CHR", "ASC", "UCASE", "LCASE", "TRIM",
-                     "CONTAINS", "STARTSWITH", "ENDSWITH"):
+        if cmd in ("LEN", "MID", "LEFT", "RIGHT", "INSTR", "STR",
+                    "VAL", "CHR", "ASC", "UCASE", "LCASE", "TRIM",
+                    "CONTAINS", "STARTSWITH", "ENDSWITH"):
             return self._basic_string_func(command)
 
+        suggestion = _suggest_command(cmd)
+        if suggestion:
+            self.interpreter.log_output(
+                f"Unknown command: {command}  (Did you mean {suggestion}?)")
         else:
             self.interpreter.log_output(f"Unknown command: {command}")
+        return "continue"
+
+    def _dispatch_end(self, command):
+        """Handle END and its block-closing variants."""
+        upper_cmd = command.upper().strip()
+        if upper_cmd == "END SELECT":
+            if self.interpreter.select_stack:
+                self.interpreter.select_stack.pop()
             return "continue"
+        if upper_cmd == "END IF":
+            return "continue"
+        if upper_cmd == "END SUB":
+            return "return"
+        if upper_cmd == "END FUNCTION":
+            return "return"
+        if upper_cmd == "END TRY":
+            if self.interpreter.try_stack:
+                self.interpreter.try_stack.pop()
+            return "continue"
+        self.interpreter.running = False
+        return "end"
+
+    def _basic_randomize(self, command):
+        """RANDOMIZE [TIMER | seed]"""
+        rest = command[len("RANDOMIZE"):].strip().upper()
+        if not rest or rest == "TIMER":
+            random.seed()
+        else:
+            try:
+                random.seed(int(float(self._eval_basic_expression(rest))))
+            except Exception:
+                random.seed()
+        return "continue"
 
     # --- BASIC PRINT ---
 
@@ -1579,6 +1591,17 @@ class TempleCodeExecutor:
     def _basic_let(self, command):
         """LET var = expression   or   var = expression"""
         text = re.sub(r'^LET\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # Dict field assignment early check: DICT.key = value
+        dot_m = re.match(r'(\w+)\.(\w+)\s*=\s*(.*)', text)
+        if dot_m:
+            dname = dot_m.group(1).upper()
+            key = dot_m.group(2).upper()
+            expr = dot_m.group(3).strip()
+            if dname in self.interpreter.dicts:
+                self.interpreter.dicts[dname][key] = self._eval_basic_expression(expr)
+                return "continue"
+
         m = re.match(r'(\w+\$?(?:\([^)]*\))?)\s*=\s*(.*)', text, re.DOTALL)
         if not m:
             return "continue"
@@ -1593,6 +1616,12 @@ class TempleCodeExecutor:
             idx_expr = arr_match.group(2)
             idx = int(float(self.interpreter.evaluate_expression(idx_expr)))
             if arr_name in self.arrays:
+                if (
+                    arr_name in self._pilot_array_upper_bounds
+                    and idx == len(self.arrays[arr_name])
+                    and idx <= self._pilot_array_upper_bounds[arr_name]
+                ):
+                    self.arrays[arr_name].append(0)
                 if 0 <= idx < len(self.arrays[arr_name]):
                     self.arrays[arr_name][idx] = self._eval_basic_expression(expr)
             else:
@@ -1615,15 +1644,6 @@ class TempleCodeExecutor:
                 while len(self.interpreter.lists[lname]) <= idx:
                     self.interpreter.lists[lname].append(0)
                 self.interpreter.lists[lname][idx] = self._eval_basic_expression(expr)
-                return "continue"
-
-        # Support dict field assignment: DICT.key
-        dot_m = re.match(r'(\w+)\.(\w+)', text.split("=")[0].strip())
-        if dot_m:
-            dname = dot_m.group(1).upper()
-            key = dot_m.group(2)
-            if dname in self.interpreter.dicts:
-                self.interpreter.dicts[dname][key] = self._eval_basic_expression(expr)
                 return "continue"
 
         value = self._eval_basic_expression(expr)
@@ -1892,7 +1912,8 @@ class TempleCodeExecutor:
             if m:
                 name = m.group(1).upper()
                 size = int(m.group(2))
-                self.arrays[name] = [0] * (size + 1)
+                self.arrays[name] = [0] * size
+                self._pilot_array_upper_bounds.pop(name, None)
         return "continue"
 
     # --- BASIC READ (from DATA statements) ---
@@ -2316,9 +2337,12 @@ class TempleCodeExecutor:
         return "continue"
 
     def _basic_inkey(self):
-        """INKEY — Returns 1 if key available, otherwise 0."""
-        # Simplified: interactive key buffering not implemented in this headless variant.
-        self.interpreter.log_output("0")
+        """INKEY — Print the next buffered key character (or empty string)."""
+        buf = self.interpreter._key_buffer
+        if buf:
+            self.interpreter.log_output(buf.popleft())
+        else:
+            self.interpreter.log_output("")
         return "continue"
 
     def _basic_pause(self, command):
@@ -2495,6 +2519,10 @@ class TempleCodeExecutor:
                 return self.interpreter.lists[var_name]
             if hasattr(self.interpreter, 'dicts') and var_name in self.interpreter.dicts:
                 return self.interpreter.dicts[var_name]
+            # INKEY$ pseudo-variable (must be checked before math constants)
+            if var_name in ("INKEY$", "INKEY"):
+                buf = self.interpreter._key_buffer
+                return buf.popleft() if buf else ""
             # Mathematical constants (only when not shadowed by a user variable)
             if var_name == "PI":
                 return math.pi
@@ -2512,6 +2540,11 @@ class TempleCodeExecutor:
         # TIMER pseudo-variable
         if upper_expr == "TIMER":
             return round(time.time() - self.interpreter._program_start_time, 3)  # pylint: disable=protected-access
+
+        # INKEY$ — return next key from buffer, or empty string
+        if upper_expr in ("INKEY$", "INKEY"):
+            buf = self.interpreter._key_buffer
+            return buf.popleft() if buf else ""
 
         # DATE$ and TIME$ pseudo-variables
         if upper_expr == "DATE$":
@@ -2739,6 +2772,12 @@ class TempleCodeExecutor:
             try:
                 idx = int(float(self.interpreter.evaluate_expression(arr_match.group(2))))
                 if arr_name in self.arrays:
+                    if (
+                        arr_name in self._pilot_array_upper_bounds
+                        and idx == len(self.arrays[arr_name])
+                        and idx <= self._pilot_array_upper_bounds[arr_name]
+                    ):
+                        self.arrays[arr_name].append(0)
                     if 0 <= idx < len(self.arrays[arr_name]):
                         return self.arrays[arr_name][idx]
                 # Check interpreter variables (e.g. DIM stored as "NAME(idx)")
@@ -2932,6 +2971,37 @@ class TempleCodeExecutor:
         """CALL sub_name(arg1, arg2, ...)
         or CALL sub_name arg1, arg2"""
         text = re.sub(r'^CALL\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # Method call: CALL obj.method(args)
+        dot_m = re.match(r'(\w+)\.(\w+)\s*\(([^)]*)\)', text)
+        if dot_m:
+            obj_name = dot_m.group(1).upper()
+            method_name = dot_m.group(2).upper()
+            arg_str = dot_m.group(3)
+            args = [a.strip() for a in arg_str.split(",") if a.strip()] if arg_str else []
+
+            instance = self.interpreter.dicts.get(obj_name)
+            if not instance or "__TYPE__" not in instance:
+                self.interpreter.log_output(f"Not a struct instance: {obj_name}")
+                return "continue"
+            struct_type = instance["__TYPE__"]
+            func_key = f"{struct_type}_{method_name}"
+            defn = self.interpreter.function_definitions.get(func_key)
+            if not defn:
+                self.interpreter.log_output(
+                    f"Undefined method {method_name} on {struct_type}")
+                return "continue"
+
+            # Bind SELF fields as variables for the method body
+            self_param = defn["params"][0] if defn["params"] else None
+            saved_self_fields = {}
+            if self_param:
+                # Make instance fields accessible as SELF.FIELD via dict
+                self.interpreter.dicts[self_param] = dict(instance)
+                actual_args = [self_param] + args
+            else:
+                actual_args = args
+            return self._execute_sub_or_function(func_key, defn, actual_args)
 
         # Parse name and arguments
         m = re.match(r'(\w+)\s*\(([^)]*)\)', text)
@@ -3313,7 +3383,11 @@ class TempleCodeExecutor:
                     pass
             self.interpreter.file_handles.clear()
         else:
-            handle = int(text.lstrip("#"))
+            try:
+                handle = int(text.lstrip("#"))
+            except ValueError:
+                self.interpreter.log_output("CLOSE syntax: CLOSE #n or CLOSE ALL")
+                return "continue"
             if handle in self.interpreter.file_handles:
                 try:
                     self.interpreter.file_handles[handle].close()
@@ -3981,17 +4055,88 @@ class TempleCodeExecutor:
     # ------------------------------------------------------------------
 
     def _modern_struct(self, command):
-        """STRUCT name = field1, field2, field3
+        """STRUCT name = field1, field2, field3  (single-line)
+        or multi-line block:
+            STRUCT name
+              FIELD x, y
+              METHOD greet(self)
+                PRINT self.X
+              END METHOD
+            END STRUCT
         Defines a template for structured data (stored as dict)."""
         text = re.sub(r'^STRUCT\s+', '', command, flags=re.IGNORECASE).strip()
+
+        # Single-line form: STRUCT name = field1, field2
         m = re.match(r'(\w+)\s*=\s*(.*)', text)
-        if not m:
-            self.interpreter.log_output("STRUCT syntax: STRUCT name = field1, field2, ...")
+        if m:
+            name = m.group(1).upper()
+            fields = [f.strip().upper() for f in m.group(2).split(",") if f.strip()]
+            self.interpreter.variables["__STRUCT_" + name] = fields
             return "continue"
-        name = m.group(1).upper()
-        fields = [f.strip().upper() for f in m.group(2).split(",") if f.strip()]
-        # Store struct definition as a dict template
+
+        # Multi-line form: STRUCT name ... END STRUCT
+        m2 = re.match(r'(\w+)\s*$', text)
+        if not m2:
+            self.interpreter.log_output(
+                "STRUCT syntax: STRUCT name = field1, ... or STRUCT name / END STRUCT")
+            return "continue"
+        name = m2.group(1).upper()
+        fields = []
+        methods = {}
+
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            lu = lt.strip().upper()
+
+            if lu == "END STRUCT":
+                break
+
+            # FIELD x, y, z
+            fm = re.match(r'FIELD\s+(.*)', lt.strip(), re.IGNORECASE)
+            if fm:
+                fields.extend(
+                    f.strip().upper() for f in fm.group(1).split(",") if f.strip())
+                self.interpreter.current_line += 1
+                continue
+
+            # METHOD name(params) ... END METHOD
+            mm = re.match(r'METHOD\s+(\w+)\s*\(([^)]*)\)', lt.strip(), re.IGNORECASE)
+            if mm:
+                mname = mm.group(1).upper()
+                mparams = [p.strip().upper()
+                           for p in mm.group(2).split(",") if p.strip()]
+                body_start = self.interpreter.current_line + 1
+                depth = 1
+                self.interpreter.current_line += 1
+                while self.interpreter.current_line < len(self.interpreter.program_lines):
+                    _, mlt = self.interpreter.program_lines[self.interpreter.current_line]
+                    mlu = mlt.strip().upper()
+                    if mlu.startswith("METHOD "):
+                        depth += 1
+                    elif mlu == "END METHOD":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    self.interpreter.current_line += 1
+                body_end = self.interpreter.current_line
+                methods[mname] = {
+                    "params": mparams,
+                    "body_start": body_start,
+                    "body_end": body_end,
+                }
+                self.interpreter.current_line += 1
+                continue
+
+            self.interpreter.current_line += 1
+
         self.interpreter.variables["__STRUCT_" + name] = fields
+        if methods:
+            self.interpreter.variables["__STRUCT_METHODS_" + name] = methods
+            # Register methods as callable functions (prefixed with struct name)
+            for mname, mdef in methods.items():
+                func_name = f"{name}_{mname}"
+                self.interpreter.function_definitions[func_name] = mdef
         return "continue"
 
     def _modern_new(self, command):
@@ -4007,6 +4152,8 @@ class TempleCodeExecutor:
             self.interpreter.log_output(f"Undefined struct: {struct_name}")
             return "continue"
         instance = {f: 0 for f in fields}
+        # Tag instance with its struct type for method dispatch
+        instance["__TYPE__"] = struct_name
         self.interpreter.dicts[var_name] = instance
         return "continue"
 
@@ -4015,20 +4162,54 @@ class TempleCodeExecutor:
     # ------------------------------------------------------------------
 
     def _modern_lambda(self, command):
-        """LAMBDA name(params) = expression
+        """LAMBDA name(params) = expression     (single-line)
+        or multi-line block:
+            LAMBDA name(params)
+              ...body...
+              RETURN expr
+            END LAMBDA
         Creates a lightweight inline function."""
-        m = re.match(r'LAMBDA\s+(\w+)\s*\(([^)]*)\)\s*=\s*(.*)', command, re.IGNORECASE)
-        if not m:
-            self.interpreter.log_output("LAMBDA syntax: LAMBDA name(params) = expression")
+        # Single-line form: LAMBDA name(params) = expression
+        m = re.match(r'LAMBDA\s+(\w+)\s*\(([^)]*)\)\s*=\s+(.*)', command, re.IGNORECASE)
+        if m and m.group(3).strip():
+            name = m.group(1).upper()
+            params = [p.strip().upper() for p in m.group(2).split(",") if p.strip()]
+            body_expr = m.group(3).strip()
+            self.interpreter.function_definitions[name] = {
+                "params": params,
+                "body_expr": body_expr,
+                "is_lambda": True,
+            }
             return "continue"
-        name = m.group(1).upper()
-        params = [p.strip().upper() for p in m.group(2).split(",") if p.strip()]
-        body_expr = m.group(3).strip()
-        # Store as a function definition with a single RETURN line
+
+        # Multi-line form: LAMBDA name(params) ... END LAMBDA
+        m2 = re.match(r'LAMBDA\s+(\w+)\s*\(([^)]*)\)\s*$', command, re.IGNORECASE)
+        if not m2:
+            self.interpreter.log_output(
+                "LAMBDA syntax: LAMBDA name(params) = expr or LAMBDA name(params) / END LAMBDA")
+            return "continue"
+        name = m2.group(1).upper()
+        params = [p.strip().upper() for p in m2.group(2).split(",") if p.strip()]
+
+        body_start = self.interpreter.current_line + 1
+        depth = 1
+        self.interpreter.current_line += 1
+        while self.interpreter.current_line < len(self.interpreter.program_lines):
+            _, lt = self.interpreter.program_lines[self.interpreter.current_line]
+            lu = lt.strip().upper()
+            if lu.startswith("LAMBDA ") and "=" not in lu:
+                depth += 1
+            elif lu == "END LAMBDA":
+                depth -= 1
+                if depth == 0:
+                    break
+            self.interpreter.current_line += 1
+
+        body_end = self.interpreter.current_line
         self.interpreter.function_definitions[name] = {
             "params": params,
-            "body_expr": body_expr,  # inline expression
-            "is_lambda": True,
+            "body_start": body_start,
+            "body_end": body_end,
         }
         return "continue"
 
@@ -4252,7 +4433,12 @@ class TempleCodeExecutor:
             name = m.group(1).upper()
             key = m.group(2)
             if name in self.interpreter.dicts:
-                return self.interpreter.dicts[name].get(key, "")
+                d = self.interpreter.dicts[name]
+                if key in d:
+                    return d[key]
+                if key.upper() in d:
+                    return d[key.upper()]
+                return ""
 
         # LENGTH(list_or_string)
         m = re.match(r'LENGTH\((\w+)\)', expr, re.IGNORECASE)

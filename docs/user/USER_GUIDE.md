@@ -428,9 +428,23 @@ You can also zoom with **Ctrl+Scroll Wheel**, **Ctrl+Plus**, or **Ctrl+Minus** t
 
 **Debug → Enable Debug Mode** — toggles verbose debugging output. When enabled, the interpreter prints additional information about each executed line.
 
+### Step Debugger
+
+Time Warp II includes a full step debugger:
+
+| Key | Action |
+|-----|--------|
+| **F5** | Start / Resume debugging |
+| **F9** | Toggle breakpoint on current line |
+| **F10** | Step Over (execute one line) |
+| **F11** | Step Into |
+| **Shift+F5** | Stop debugging |
+
+When paused at a breakpoint or after stepping, the variable inspector shows current variable values.
+
 ### Breakpoints
 
-Breakpoints can be set programmatically. Use **Debug → Clear All Breakpoints** to remove them all.
+Click the gutter or press **F9** to toggle a breakpoint on the current line. Use **Debug → Clear All Breakpoints** to remove them all.
 
 ### Error History
 
@@ -438,13 +452,29 @@ The interpreter records errors encountered during execution:
 - **Debug → Show Error History** — displays a list of all errors from the current session
 - **Debug → Clear Error History** — resets the error log
 
+### "Did You Mean?" Suggestions
+
+If you mis-type a command (e.g. `PRITN` instead of `PRINT`), the interpreter will suggest the closest valid command using fuzzy matching.
+
+---
+
+## REPL Panel
+
+The **REPL** (Read-Eval-Print Loop) panel provides an interactive console for executing TempleCode commands one at a time. Open it via **View → REPL Panel** or find it in the right-hand panel below the output.
+
+Type any TempleCode statement and press Enter to execute it immediately. Variables and state persist across REPL entries, making it ideal for experimentation and debugging.
+
 ---
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| **F5** | Run Program |
+| **F5** | Run / Resume Program |
+| **F9** | Toggle Breakpoint |
+| **F10** | Step Over |
+| **F11** | Step Into |
+| **Shift+F5** | Stop Debugger |
 | **Escape** | Stop Program |
 | **Ctrl+N** | New File |
 | **Ctrl+O** | Open File |

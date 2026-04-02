@@ -800,6 +800,23 @@ class TestFileIO:
         out = run_program(code)
         assert out.last_line == ""
 
+    def test_close_invalid_handle_continues_execution(self):
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tf:
+            fname = tf.name
+        try:
+            code = (
+                f'OPEN "{fname}" FOR OUTPUT AS #1\n'
+                'WRITELINE #1, "line"\n'
+                'CLOSE nope\n'
+                'PRINT "ok"\n'
+                'CLOSE ALL'
+            )
+            out = run_program(code)
+            assert out.last_line == "ok"
+            assert "CLOSE syntax" in out.raw
+        finally:
+            os.unlink(fname)
+
 
 # =====================================================================
 #  FUNCTION with RETURN values (RESULT variable)
@@ -1212,7 +1229,8 @@ class TestBasicExtended:
 
     def test_turbo_basic_pause_inkey(self):
         out = run_program('PAUSE 50\nINKEY')
-        assert "0" in out.raw
+        # INKEY outputs "" when no key is buffered (empty string, no error)
+        assert "error" not in out.raw.lower()
 
     def test_select_case_string(self):
         code = "LET A = 1\nLET B = 2\nSWAP A, B\nPRINT A\nPRINT B"
@@ -1368,6 +1386,10 @@ class TestPilot:
         code = "LET X = 0\nU:X=5\nPRINT X"
         out = run_program(code)
         assert out.last_line == "5"
+
+    def test_D_dim_uses_inclusive_upper_bound(self):
+        code = "D:A(2)\nLET A(2) = 99\nPRINT A(2)"
+        assert run_program(code).last_line == "99"
 
     def test_pilot_mixed_with_basic(self):
         code = "LET N = 5\nT:N is $N\nPRINT N + 1"

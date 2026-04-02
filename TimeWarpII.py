@@ -22,43 +22,12 @@ Features:
 from __future__ import annotations
 
 import sys
-import json
 import os
 import queue as _queue
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-
-# ---------------------------------------------------------------------------
-#  Settings persistence
-# ---------------------------------------------------------------------------
-
-SETTINGS_FILE = Path.home() / ".templecode_settings.json"
-MAX_RECENT = 10
-
-
-def load_settings() -> dict[str, Any]:
-    """Load user settings from disk."""
-    try:
-        if SETTINGS_FILE.exists():
-            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {
-        "theme": "dark", "font_size": "medium", "font_family": "Courier",
-        "recent_files": [], "auto_dark": True,
-        "exec_speed": 0, "turtle_speed": 0,
-    }
-
-
-def save_settings(data: dict[str, Any]) -> None:
-    """Persist user settings to disk."""
-    try:
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
+from core.settings import load_settings, save_settings, MAX_RECENT
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +88,6 @@ class TempleCodeApp:
         import tkinter as tk
         from tkinter import scrolledtext, messagebox, filedialog
         from core.interpreter import TempleCodeInterpreter
-        from core.features.syntax_highlighting import SyntaxHighlightingText, LineNumberedText
         from core.config import (
             THEMES, LINE_NUMBER_BG, FONT_SIZES, FONT_SIZE_ORDER,
             PRIORITY_FONTS, WELCOME_MESSAGE, KEYWORDS, INDENT_OPENERS,
@@ -129,6 +97,14 @@ class TempleCodeApp:
             UndoHistoryManager, format_code, parse_imports,
             build_import_graph, format_import_graph,
         )
+        from ui.editor import EditorPanel
+        from ui.output import OutputPanel
+        from ui.graphics import GraphicsPanel
+        from ui.toolbar import Toolbar
+        from ui.statusbar import StatusBar
+        from ui.menus import build_menus
+        from ui.tabs import TabManager
+        from ui.repl import ReplPanel
 
         # Store module refs for use in methods
         self.tk = tk
@@ -175,7 +151,8 @@ class TempleCodeApp:
         # Build the GUI
         self.root = tk.Tk()
         self.root.title("Time Warp II")
-        self.root.geometry("1200x800")
+        saved_geom = self._settings.get("geometry", "")
+        self.root.geometry(saved_geom if saved_geom else "1200x800")
         self.root.config(bg="#252526")
 
         if self._init_gui_optimizer is not None:
@@ -184,44 +161,30 @@ class TempleCodeApp:
         else:
             print("ℹ️  GUI optimizations not available")
 
-        # Widget refs (populated during layout)
-        self.editor_text: Any = None
-        self.editor_text2: Any = None      # Feature 10: split editor
-        self.output_text: Any = None
-        self.turtle_canvas: Any = None
-        self.input_entry: Any = None
+        # Validate font family against installed system fonts
+        try:
+            import tkinter.font as tkfont
+            available = set(tkfont.families())
+            if self.current_font_family not in available:
+                for candidate in PRIORITY_FONTS:
+                    if candidate in available:
+                        self.current_font_family = candidate
+                        break
+                else:
+                    self.current_font_family = "TkFixedFont"
+        except Exception:
+            pass  # tkinter.font unavailable in tests
+
+        # State flags
         self.input_buffer: list[str] = []
         self.interpreter = None
-        self._dirty = False                # unsaved‐changes flag
-        self._is_running = False           # program‐execution flag
-        self._key_capture_active = False   # True while waiting for user input
-        self._undo_snapshot_after_id = None    # after() handle for debounced undo snapshot
-
-        # Layout frames (populated in _build_layout)
-        self.left_panel = None
-        self.right_panel = None
-        self.editor_frame = None
-        self.editor_frame2 = None           # split
-        self.editor_paned = None            # split
-        self.output_frame = None
-        self.graphics_frame = None
-        self.input_frame = None
-        self.button_frame = None
-        self.main_paned = None
-        self.right_paned = None
-        self.status_bar = None              # Feature 1
-        self._status_labels: dict[str, Any] = {}
-
-        # Command palette data  (Feature 6)
-        self._palette_commands: list[tuple[str, Any]] = []
+        self._dirty = False
+        self._is_running = False
+        self._key_capture_active = False
+        self._undo_snapshot_after_id = None
 
         # Autocomplete state (Feature 5)
         self._ac_popup = None
-
-        # Speed controls (Features 12/13)
-        self._speed_frame = None
-        self._exec_slider = None
-        self._turtle_slider = None
 
         # Font family menu lazy-load flag
         self._fonts_loaded = False
@@ -236,16 +199,75 @@ class TempleCodeApp:
         self._build_import_graph = build_import_graph
         self._format_import_graph = format_import_graph
 
-        self._build_menus(SyntaxHighlightingText, LineNumberedText)
-        self._build_layout(SyntaxHighlightingText, LineNumberedText)
+        # ---- Build layout with extracted UI modules ----
+
+        # Main paned window
+        self.main_paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, sashwidth=5, bg="#252526")
+        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Left panel — editor(s)
+        self.left_panel = tk.Frame(self.main_paned, bg="#252526")
+        self.main_paned.add(self.left_panel, width=400)
+
+        self.editor_panel = EditorPanel(self, self.left_panel, pygments_ok=self._pygments_ok)
+
+        # Backward-compat aliases — code referencing self.editor_text gets the
+        # SyntaxHighlightingText / LineNumberedText wrapper (NOT the EditorPanel).
+        self.editor_text = self.editor_panel.text_widget
+        self.editor_text2 = self.editor_panel.text_widget2
+        self.editor_paned = self.editor_panel.paned
+        self.editor_frame = self.editor_panel.frame
+        self.editor_frame2 = self.editor_panel.frame2
+
+        # Tab manager — sits above the editor paned window
+        self.tab_manager = TabManager(self, self.left_panel)
+
+        # Right panel — output + graphics
+        self.right_panel = tk.Frame(self.main_paned, bg="#252526")
+        self.main_paned.add(self.right_panel, width=800)
+
+        self.right_paned = tk.PanedWindow(self.right_panel, orient=tk.VERTICAL, sashwidth=5, bg="#252526")
+        self.right_paned.pack(fill=tk.BOTH, expand=True)
+
+        self.output_panel = OutputPanel(self, self.right_paned)
+        self.right_paned.add(self.output_panel.frame, height=300)
+        self.output_text = self.output_panel.text      # backward compat
+        self.output_frame = self.output_panel.frame
+
+        self.graphics_panel = GraphicsPanel(self, self.right_paned)
+        self.right_paned.add(self.graphics_panel.frame, height=300)
+        self.turtle_canvas = self.graphics_panel.canvas   # backward compat
+        self.graphics_frame = self.graphics_panel.frame
+
+        # REPL panel — interactive command line below graphics
+        self.repl_panel = ReplPanel(self, self.right_paned)
+        self.right_paned.add(self.repl_panel.frame, height=150)
+
+        # Input bar (simple — stays inline)
         self._build_input_bar()
-        self._build_toolbar()
-        self._build_speed_controls()
-        self._build_status_bar()
+
+        # Toolbar + speed controls
+        self.toolbar = Toolbar(self)
+        self.button_frame = self.toolbar.button_frame
+        self._speed_frame = self.toolbar.speed_frame
+        self._exec_slider = self.toolbar.exec_slider
+        self._turtle_slider = self.toolbar.turtle_slider
+
+        # Status bar
+        self.status_bar_panel = StatusBar(self)
+        self.status_bar = self.status_bar_panel.frame
+        self._status_labels = self.status_bar_panel.labels
+
+        # Command palette data (populated by build_menus)
+        self._palette_commands: list[tuple[str, Any]] = []
+
+        # Menus + command palette entries
+        build_menus(self)
+
+        # Key bindings
         self._bind_keys()
 
         # Initialise interpreter — use the thread-safe proxy as output_widget
-        # so the background execution thread never touches tkinter widgets.
         self._output_proxy = _OutputProxy()
         self.interpreter = TempleCodeInterpreter(self._output_proxy)
         self.interpreter.ide_turtle_canvas = self.turtle_canvas
@@ -257,11 +279,14 @@ class TempleCodeApp:
         self.interpreter.watch_manager = self._watch_manager
         self.interpreter.profiler = self._profiler
 
-        # Configure output colour tags  (Feature 7)
-        self._setup_output_tags()
+        # Feed keystrokes to the interpreter's key buffer for INKEY$
+        self.root.bind("<KeyPress>", self._on_key_for_inkey)
+
+        # Configure output colour tags
+        self.output_panel.setup_tags(THEMES[self.current_theme])
 
         # Apply saved settings
-        self._out_write(WELCOME_MESSAGE)
+        self._output(WELCOME_MESSAGE)
         self.apply_theme(self.current_theme)
         self.apply_font_size(self.current_font)
 
@@ -274,9 +299,8 @@ class TempleCodeApp:
         if self.auto_dark:
             self._auto_detect_dark_mode()
 
-        # Start status bar updater (Feature 1)
-        self._status_bar_after_id = None
-        self._update_status_bar()
+        # Start status bar updater
+        self.status_bar_panel.start_updates()
 
         # Ensure closing the window via the X button goes through exit_app
         self.root.protocol("WM_DELETE_WINDOW", self.exit_app)
@@ -294,337 +318,11 @@ class TempleCodeApp:
             "auto_dark": self.auto_dark,
             "exec_speed": self.exec_speed,
             "turtle_speed": self.turtle_speed,
+            "geometry": self.root.geometry(),
         })
 
     # ==================================================================
-    #  Menu construction
-    # ==================================================================
-
-    def _build_menus(self, SyntaxHighlightingText, LineNumberedText):
-        tk = self.tk
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar, bg="#252526")
-
-        # --- File ---
-        self._file_menu = file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="New File", command=self.new_file, accelerator="Ctrl+N")
-        file_menu.add_command(label="Open File...", command=self.load_file, accelerator="Ctrl+O")
-        file_menu.add_separator()
-        file_menu.add_command(label="Save", command=self.save_file_quick, accelerator="Ctrl+S")
-        file_menu.add_command(label="Save As...", command=self.save_file, accelerator="Ctrl+Shift+S")
-        file_menu.add_separator()
-        # Recent files submenu (Feature 2)
-        self._recent_menu = tk.Menu(file_menu, tearoff=0)
-        file_menu.add_cascade(label="Recent Files", menu=self._recent_menu)
-        self._rebuild_recent_menu()
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.exit_app, accelerator="Ctrl+Q")
-
-        # --- Edit ---
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Edit", menu=edit_menu)
-        edit_menu.add_command(label="Undo", command=self.undo_text, accelerator="Ctrl+Z")
-        edit_menu.add_command(label="Redo", command=self.redo_text, accelerator="Ctrl+Y")
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Cut", command=lambda: self._editor_event("<<Cut>>"), accelerator="Ctrl+X")
-        edit_menu.add_command(label="Copy", command=lambda: self._editor_event("<<Copy>>"), accelerator="Ctrl+C")
-        edit_menu.add_command(label="Paste", command=lambda: self._editor_event("<<Paste>>"), accelerator="Ctrl+V")
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Select All", command=self.select_all, accelerator="Ctrl+A")
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Clear Editor", command=self.clear_editor)
-        edit_menu.add_command(label="Clear Output", command=self.clear_output)
-        edit_menu.add_command(label="Clear Graphics", command=self.clear_canvas)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Find...", command=self.show_find_dialog, accelerator="Ctrl+F")
-        edit_menu.add_command(label="Replace...", command=self.show_replace_dialog, accelerator="Ctrl+H")
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Go to Line...", command=self.show_goto_line_dialog, accelerator="Ctrl+G")
-        edit_menu.add_separator()
-        # Feature 11: code folding
-        edit_menu.add_command(label="Fold All Blocks", command=self.fold_all)
-        edit_menu.add_command(label="Unfold All", command=self.unfold_all)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Format Code", command=self._format_editor_code,
-                              accelerator="Ctrl+Shift+F")
-        edit_menu.add_command(label="Insert Snippet...", command=self._show_snippet_picker,
-                              accelerator="Ctrl+J")
-        edit_menu.add_command(label="Manage Snippets...", command=self._show_snippet_manager)
-        edit_menu.add_separator()
-        edit_menu.add_command(label="Undo History...", command=self._show_undo_history)
-
-        # --- View ---  (Feature 10: split editor)
-        view_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="View", menu=view_menu)
-        self._split_var = tk.BooleanVar(value=False)
-        view_menu.add_checkbutton(
-            label="Split Editor", variable=self._split_var,
-            command=self._toggle_split_editor)
-        view_menu.add_separator()
-        view_menu.add_command(label="Command Palette...", command=self.show_command_palette,
-                              accelerator="Ctrl+Shift+P")
-
-        # --- Program ---
-        program_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Program", menu=program_menu)
-        program_menu.add_command(label="Run Program", command=self.run_code, accelerator="F5")
-        program_menu.add_command(label="Stop Program", command=self.stop_code, accelerator="Ctrl+Break")
-        program_menu.add_separator()
-        # Feature 14: export turtle graphics
-        program_menu.add_command(label="Export Canvas as PNG...", command=self.export_canvas_png)
-        program_menu.add_command(label="Export Canvas as SVG...", command=self.export_canvas_svg)
-        program_menu.add_separator()
-        program_menu.add_command(label="Show Import Graph", command=self._show_import_graph)
-        program_menu.add_separator()
-        examples_menu = tk.Menu(program_menu, tearoff=0)
-        program_menu.add_cascade(label="Load Example", menu=examples_menu)
-        for item in [
-            ("Hello World",            "examples/templecode/hello.tc"),
-            ("Turtle Graphics Spiral", "examples/templecode/spiral.tc"),
-            ("Quiz (PILOT style)",     "examples/templecode/quiz.tc"),
-            ("Number Guessing Game",   "examples/templecode/guess.tc"),
-            ("Mandelbrot (Turtle Art)", "examples/templecode/mandelbrot.tc"),
-            None,  # separator
-            ("Calculator",             "examples/templecode/calculator.tc"),
-            ("Countdown Timer",        "examples/templecode/countdown.tc"),
-            ("FizzBuzz",               "examples/templecode/fizzbuzz.tc"),
-            ("Fibonacci Sequence",     "examples/templecode/fibonacci.tc"),
-            ("Times Tables Trainer",   "examples/templecode/timestables.tc"),
-            ("Temperature Converter",  "examples/templecode/temperature.tc"),
-            ("Dice Roller",            "examples/templecode/dice.tc"),
-            None,  # separator
-            ("Science Quiz",           "examples/templecode/science_quiz.tc"),
-            ("Adventure Story",        "examples/templecode/adventure.tc"),
-            ("Interactive Drawing",    "examples/templecode/interactive_drawing.tc"),
-            None,  # separator
-            ("Rainbow Spiral",         "examples/templecode/rainbow.tc"),
-            ("Shapes Gallery",         "examples/templecode/shapes.tc"),
-            ("Flower Garden",          "examples/templecode/flower.tc"),
-            ("Kaleidoscope",           "examples/templecode/kaleidoscope.tc"),
-            ("Snowflake Fractal",      "examples/templecode/snowflake.tc"),
-            ("Clock Face",             "examples/templecode/clock.tc"),
-            None,  # separator
-            ("★ Budget Tracker Pro",   "examples/templecode/budget_tracker.tc"),
-        ]:
-            if item is None:
-                examples_menu.add_separator()
-            else:
-                examples_menu.add_command(label=item[0], command=lambda p=item[1]: self.load_example(p))
-
-        # --- Debug ---
-        debug_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Debug", menu=debug_menu)
-        self._debug_var = tk.BooleanVar(value=False)
-        debug_menu.add_checkbutton(
-            label="Enable Debug Mode", variable=self._debug_var,
-            command=lambda: self.interpreter and self.interpreter.set_debug_mode(self._debug_var.get()),
-        )
-        debug_menu.add_separator()
-        debug_menu.add_command(label="Add Watch Expression...", command=self._add_watch_dialog)
-        debug_menu.add_command(label="Show Watches", command=self._show_watches)
-        debug_menu.add_command(label="Clear All Watches",
-                               command=lambda: (self._watch_manager.clear(),
-                                                self._output("👁  All watches cleared.\n", "out_ok")))
-        debug_menu.add_separator()
-        debug_menu.add_command(label="Clear All Breakpoints",
-                               command=lambda: self.interpreter and self.interpreter.breakpoints.clear())
-        debug_menu.add_separator()
-        debug_menu.add_command(label="Show Error History", command=self.show_error_history)
-        debug_menu.add_command(label="Clear Error History",
-                               command=lambda: setattr(self.interpreter, 'error_history', []) if self.interpreter else None)
-        debug_menu.add_separator()
-        # Profiler
-        self._profiler_var = tk.BooleanVar(value=False)
-        debug_menu.add_checkbutton(
-            label="Enable Profiler", variable=self._profiler_var,
-            command=lambda: setattr(self._profiler, 'enabled', self._profiler_var.get()),
-        )
-        debug_menu.add_command(label="Show Profiler Report", command=self._show_profiler_report)
-
-        # --- Test ---
-        test_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Test", menu=test_menu)
-        test_menu.add_command(label="Run Smoke Test", command=self.run_smoke_test)
-        test_menu.add_separator()
-        test_menu.add_command(
-            label="Open Examples Directory",
-            command=lambda: __import__('subprocess').run(["xdg-open", "examples"]),
-        )
-
-        # --- Preferences ---
-        prefs_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Preferences", menu=prefs_menu)
-
-        # Theme submenu
-        theme_menu = tk.Menu(prefs_menu, tearoff=0)
-        prefs_menu.add_cascade(label="Color Theme", menu=theme_menu)
-        for key, data in self.THEMES.items():
-            theme_menu.add_command(label=data["name"], command=lambda k=key: self.apply_theme(k))
-
-        # Font family submenu
-        self._font_family_menu = tk.Menu(prefs_menu, tearoff=0)
-        prefs_menu.add_cascade(label="Font Family", menu=self._font_family_menu)
-        self._fonts_loaded = False
-        self._font_family_menu.add_command(label="Loading...", state=tk.DISABLED)
-        self._font_family_menu.bind("<Map>", lambda e: self._populate_font_menu())
-
-        # Font size submenu
-        font_size_menu = tk.Menu(prefs_menu, tearoff=0)
-        prefs_menu.add_cascade(label="Font Size", menu=font_size_menu)
-        for key, data in self.FONT_SIZES.items():
-            font_size_menu.add_command(label=data["name"], command=lambda k=key: self.apply_font_size(k))
-
-        prefs_menu.add_separator()
-        # Feature 15: auto dark mode toggle
-        self._auto_dark_var = tk.BooleanVar(value=self.auto_dark)
-        prefs_menu.add_checkbutton(
-            label="Auto Dark/Light (follow OS)",
-            variable=self._auto_dark_var,
-            command=self._toggle_auto_dark)
-
-        # --- Help ---
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="Quick Reference", command=self.show_quick_reference)
-        help_menu.add_command(label="Keyboard Shortcuts", command=self.show_keyboard_shortcuts)
-        help_menu.add_separator()
-        help_menu.add_command(label="About Time Warp II", command=self.show_about)
-
-        # Build command palette entries (Feature 6)
-        self._palette_commands = [
-            ("New File",             self.new_file),
-            ("Open File",            self.load_file),
-            ("Save File",            self.save_file_quick),
-            ("Save File As",         self.save_file),
-            ("Run Program",          self.run_code),
-            ("Stop Program",         self.stop_code),
-            ("Find...",              self.show_find_dialog),
-            ("Replace...",           self.show_replace_dialog),
-            ("Undo",                 self.undo_text),
-            ("Redo",                 self.redo_text),
-            ("Select All",           self.select_all),
-            ("Clear Editor",         self.clear_editor),
-            ("Clear Output",         self.clear_output),
-            ("Clear Graphics",       self.clear_canvas),
-            ("Fold All Blocks",      self.fold_all),
-            ("Unfold All",           self.unfold_all),
-            ("Toggle Split Editor",  self._toggle_split_editor),
-            ("Export Canvas as PNG",  self.export_canvas_png),
-            ("Export Canvas as SVG",  self.export_canvas_svg),
-            ("Show Import Graph",    self._show_import_graph),
-            ("Format Code",          self._format_editor_code),
-            ("Insert Snippet",       self._show_snippet_picker),
-            ("Manage Snippets",      self._show_snippet_manager),
-            ("Undo History",         self._show_undo_history),
-            ("Add Watch Expression", self._add_watch_dialog),
-            ("Show Watches",         self._show_watches),
-            ("Show Profiler Report", self._show_profiler_report),
-            ("Run Smoke Test",       self.run_smoke_test),
-            ("Show Error History",   self.show_error_history),
-            ("Go to Line",           self.show_goto_line_dialog),
-            ("Quick Reference",      self.show_quick_reference),
-            ("Keyboard Shortcuts",   self.show_keyboard_shortcuts),
-            ("About Time Warp II", self.show_about),
-            ("Exit",                 self.exit_app),
-        ]
-        for key, data in self.THEMES.items():
-            self._palette_commands.append((f"Theme: {data['name']}", lambda k=key: self.apply_theme(k)))
-        for key, data in self.FONT_SIZES.items():
-            self._palette_commands.append((f"Font Size: {data['name']}", lambda k=key: self.apply_font_size(k)))
-
-    # ==================================================================
-    #  Layout construction
-    # ==================================================================
-
-    def _build_layout(self, SyntaxHighlightingText, LineNumberedText):
-        tk = self.tk
-
-        self.main_paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, sashwidth=5, bg="#252526")
-        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Left panel — editor(s)
-        self.left_panel = tk.Frame(self.main_paned, bg="#252526")
-        self.main_paned.add(self.left_panel, width=400)
-
-        # Editor paned window for split view (Feature 10)
-        self.editor_paned = tk.PanedWindow(self.left_panel, orient=tk.VERTICAL, sashwidth=5, bg="#252526")
-        self.editor_paned.pack(fill=tk.BOTH, expand=True)
-
-        self.editor_frame = tk.LabelFrame(
-            self.editor_paned, text="TempleCode Editor", padx=5, pady=5,
-            bg="#252526", fg="#d4d4d4",
-        )
-        self.editor_paned.add(self.editor_frame)
-
-        if self._pygments_ok:
-            self.editor_text = SyntaxHighlightingText(
-                self.editor_frame, language="templecode", theme="dark",
-                bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            )
-        else:
-            self.editor_text = LineNumberedText(
-                self.editor_frame, bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            )
-        self.editor_text.pack(fill=tk.BOTH, expand=True)
-
-        # Second editor (hidden by default — Feature 10)
-        self.editor_frame2 = tk.LabelFrame(
-            self.editor_paned, text="Editor 2", padx=5, pady=5,
-            bg="#252526", fg="#d4d4d4",
-        )
-        if self._pygments_ok:
-            self.editor_text2 = SyntaxHighlightingText(
-                self.editor_frame2, language="templecode", theme="dark",
-                bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            )
-        else:
-            self.editor_text2 = LineNumberedText(
-                self.editor_frame2, bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            )
-        self.editor_text2.pack(fill=tk.BOTH, expand=True)
-
-        # Right panel — output + graphics
-        self.right_panel = tk.Frame(self.main_paned, bg="#252526")
-        self.main_paned.add(self.right_panel, width=800)
-
-        self.right_paned = tk.PanedWindow(self.right_panel, orient=tk.VERTICAL, sashwidth=5, bg="#252526")
-        self.right_paned.pack(fill=tk.BOTH, expand=True)
-
-        self.output_frame = tk.LabelFrame(
-            self.right_paned, text="Output", padx=5, pady=5,
-            bg="#252526", fg="#d4d4d4",
-        )
-        self.right_paned.add(self.output_frame, height=300)
-
-        self.output_text = self.scrolledtext.ScrolledText(
-            self.output_frame, wrap=tk.WORD, font=("Courier", 10),
-            bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            # Keep output_text in NORMAL state always — state=DISABLED freezes
-            # Tk 9's mainloop.  We block keyboard input via a <Key> binding
-            # and keep takefocus=0 so Tab doesn't land here.
-            takefocus=0,
-        )
-        self.output_text.pack(fill=tk.BOTH, expand=True)
-        # Prevent the user from typing into the output pane without disabling it.
-        self.output_text.bind("<Key>", lambda e: "break")
-
-        self.graphics_frame = tk.LabelFrame(
-            self.right_paned, text="Turtle Graphics", padx=5, pady=5,
-            bg="#252526", fg="#d4d4d4",
-        )
-        self.right_paned.add(self.graphics_frame, height=300)
-
-        self.turtle_canvas = tk.Canvas(
-            self.graphics_frame, width=600, height=400,
-            bg="#2d2d2d", highlightthickness=1, highlightbackground="#3e3e3e",
-        )
-        self.turtle_canvas.pack(fill=tk.BOTH, expand=True)
-        # Update turtle centre when canvas is resized
-        self.turtle_canvas.bind("<Configure>", self._on_canvas_resize)
-
-    # ==================================================================
-    #  Input bar, toolbar, speed controls, status bar
+    #  Input bar (stays inline — too small to extract)
     # ==================================================================
 
     def _build_input_bar(self):
@@ -637,9 +335,6 @@ class TempleCodeApp:
         self.input_entry = tk.Entry(
             self.input_frame, font=("Courier", 10),
             bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            # Prevent the system grey (#d9d9d9) border appearing on dark themes.
-            # highlightbackground = same as entry bg → invisible when unfocused.
-            # highlightcolor = clear blue ring when focused (keyboard-ready signal).
             highlightbackground="#1e1e1e",
             highlightcolor="#007acc",
             highlightthickness=2,
@@ -649,111 +344,14 @@ class TempleCodeApp:
         tk.Button(self.input_frame, text="Submit", command=self._submit_input,
                   bg="#3e3e3e", fg="#d4d4d4").pack(side=tk.LEFT)
 
-    def _build_toolbar(self):
-        """Feature 9: styled flat toolbar buttons with hover effect."""
-        tk = self.tk
-        self.button_frame = tk.Frame(self.root, bg="#252526")
-        self.button_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
-
-        buttons = [
-            ("▶  Run",          self.run_code,     "#4CAF50", "white",   True),
-            ("⏹  Stop",         self.stop_code,    "#d32f2f", "white",   True),
-            ("📂 Open",         self.load_file,    "#3e3e3e", "#d4d4d4", False),
-            ("💾 Save",         self.save_file_quick, "#3e3e3e", "#d4d4d4", False),
-            ("🗑  Clear Editor", self.clear_editor, "#3e3e3e", "#d4d4d4", False),
-            ("📄 Clear Output", self.clear_output,  "#3e3e3e", "#d4d4d4", False),
-            ("🎨 Clear Canvas", self.clear_canvas,  "#3e3e3e", "#d4d4d4", False),
-        ]
-        for label, cmd, bg, fg, bold in buttons:
-            font = ("Arial", 10, "bold") if bold else ("Arial", 10)
-            btn = tk.Button(
-                self.button_frame, text=label, command=cmd,
-                bg=bg, fg=fg, font=font, padx=12, pady=4,
-                relief=tk.FLAT, bd=0, cursor="hand2",
-            )
-            btn.pack(side=tk.LEFT, padx=3)
-            # Hover effect
-            default_bg = bg
-            btn.bind("<Enter>", lambda e, b=btn, c=default_bg: b.config(bg=self._lighter(c)))
-            btn.bind("<Leave>", lambda e, b=btn, c=default_bg: b.config(bg=c))
-
-    def _build_speed_controls(self):
-        """Features 12 & 13: execution and turtle speed sliders."""
-        tk = self.tk
-        self._speed_frame = tk.Frame(self.root, bg="#252526")
-        self._speed_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
-
-        tk.Label(self._speed_frame, text="Exec delay (ms):", font=("Arial", 9),
-                 bg="#252526", fg="#888").pack(side=tk.LEFT, padx=(0, 2))
-        self._exec_slider = tk.Scale(
-            self._speed_frame, from_=0, to=500, orient=tk.HORIZONTAL,
-            length=120, bg="#252526", fg="#aaa", troughcolor="#1e1e1e",
-            highlightthickness=0, sliderlength=14, font=("Arial", 8),
-            command=lambda v: setattr(self, 'exec_speed', int(v)),
-        )
-        self._exec_slider.set(self.exec_speed)
-        self._exec_slider.pack(side=tk.LEFT, padx=(0, 15))
-
-        tk.Label(self._speed_frame, text="Turtle delay (ms):", font=("Arial", 9),
-                 bg="#252526", fg="#888").pack(side=tk.LEFT, padx=(0, 2))
-        self._turtle_slider = tk.Scale(
-            self._speed_frame, from_=0, to=200, orient=tk.HORIZONTAL,
-            length=120, bg="#252526", fg="#aaa", troughcolor="#1e1e1e",
-            highlightthickness=0, sliderlength=14, font=("Arial", 8),
-            command=lambda v: setattr(self, 'turtle_speed', int(v)),
-        )
-        self._turtle_slider.set(self.turtle_speed)
-        self._turtle_slider.pack(side=tk.LEFT)
-
-    def _build_status_bar(self):
-        """Feature 1: status bar showing cursor position, theme, file path."""
-        tk = self.tk
-        self.status_bar = tk.Frame(self.root, bg="#007acc", height=22)
-        self.status_bar.pack(fill=tk.X, side=tk.BOTTOM)
-        self.status_bar.pack_propagate(False)
-
-        font = ("Arial", 9)
-        self._status_labels["file"] = tk.Label(
-            self.status_bar, text="  No file  ", bg="#007acc", fg="white",
-            font=font, anchor="w",
-        )
-        self._status_labels["file"].pack(side=tk.LEFT, padx=(5, 20))
-
-        self._status_labels["cursor"] = tk.Label(
-            self.status_bar, text="Ln 1, Col 1", bg="#007acc", fg="white",
-            font=font, anchor="w",
-        )
-        self._status_labels["cursor"].pack(side=tk.LEFT, padx=(0, 20))
-
-        self._status_labels["theme"] = tk.Label(
-            self.status_bar, text=self.THEMES[self.current_theme]["name"],
-            bg="#007acc", fg="white", font=font, anchor="e",
-        )
-        self._status_labels["theme"].pack(side=tk.RIGHT, padx=(0, 10))
-
-        self._status_labels["font"] = tk.Label(
-            self.status_bar, text=f"{self.current_font_family} {self.FONT_SIZES[self.current_font]['editor']}pt",
-            bg="#007acc", fg="white", font=font, anchor="e",
-        )
-        self._status_labels["font"].pack(side=tk.RIGHT, padx=(0, 15))
-
-    def _update_status_bar(self):
-        """Periodically refresh the status bar cursor position."""
-        try:
-            widget = self.editor_text
-            idx = widget.index(self.tk.INSERT) if hasattr(widget, 'index') else "1.0"
-            line, col = idx.split(".")
-            self._status_labels["cursor"].config(text=f"Ln {line}, Col {int(col)+1}")
-        except Exception:
-            pass
-        self._status_bar_after_id = self.root.after(250, self._update_status_bar)
-
     # ==================================================================
     #  Key bindings
     # ==================================================================
 
     def _bind_keys(self):
         """Bind keyboard shortcuts to IDE actions."""
+        from ui import dialogs
+
         r = self.root
         r.bind("<F5>", lambda e: self.run_code())
         r.bind("<Control-n>", lambda e: self.new_file())
@@ -765,78 +363,75 @@ class TempleCodeApp:
         r.bind("<Control-y>", lambda e: self.redo_text())
         r.bind("<Control-Shift-Z>", lambda e: self.redo_text())
         r.bind("<Control-a>", lambda e: self.select_all())
-        r.bind("<Control-f>", lambda e: self.show_find_dialog())
-        r.bind("<Control-h>", lambda e: self.show_replace_dialog())
-        r.bind("<Control-g>", lambda e: self.show_goto_line_dialog())
-        r.bind("<Control-Shift-P>", lambda e: self.show_command_palette())  # Feature 6
+        r.bind("<Control-f>", lambda e: dialogs.show_find_dialog(self))
+        r.bind("<Control-h>", lambda e: dialogs.show_replace_dialog(self))
+        r.bind("<Control-g>", lambda e: dialogs.show_goto_line_dialog(self))
+        r.bind("<Control-Shift-P>", lambda e: dialogs.show_command_palette(self))
         r.bind("<Escape>", lambda e: self.stop_code())
 
-        # Feature 8: Ctrl+scroll zoom
-        r.bind("<Control-Button-4>", lambda e: self._zoom(1))   # scroll up
-        r.bind("<Control-Button-5>", lambda e: self._zoom(-1))  # scroll down
+        # Debug key bindings
+        r.bind("<F9>", lambda e: self.debug_toggle_breakpoint())
+        r.bind("<F10>", lambda e: self.debug_step_over())
+        r.bind("<F11>", lambda e: self.debug_step_over())  # step into = step over for now
+        r.bind("<Shift-F5>", lambda e: self.debug_stop())
+
+        # Ctrl+scroll zoom
+        r.bind("<Control-Button-4>", lambda e: self._zoom(1))
+        r.bind("<Control-Button-5>", lambda e: self._zoom(-1))
         r.bind("<Control-MouseWheel>", lambda e: self._zoom(1 if e.delta > 0 else -1))
         r.bind("<Control-plus>", lambda e: self._zoom(1))
         r.bind("<Control-minus>", lambda e: self._zoom(-1))
         r.bind("<Control-equal>", lambda e: self._zoom(1))
 
-        # New feature key bindings
         r.bind("<Control-Shift-F>", lambda e: self._format_editor_code())
-        r.bind("<Control-j>", lambda e: self._show_snippet_picker())
-        r.bind("<Control-J>", lambda e: self._show_snippet_picker())
+        r.bind("<Control-j>", lambda e: dialogs.show_snippet_picker(self))
+        r.bind("<Control-J>", lambda e: dialogs.show_snippet_picker(self))
 
-        # Feature 3: auto-indent  /  Feature 5: tab-completion
-        # We bind to the inner text widget, not the frame
+        # Tab navigation shortcuts
+        r.bind("<Control-w>", lambda e: self._close_current_tab())
+        r.bind("<Control-Tab>", lambda e: self._next_tab())
+        r.bind("<Control-Shift-Tab>", lambda e: self._prev_tab())
+
+        # Auto-indent / tab-completion on the inner text widget
         text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
         text_w.bind("<Return>", self._on_editor_return)
         text_w.bind("<Tab>", self._on_tab)
 
-        # Feature 4: highlight current line on cursor move + update status bar
+        # Highlight current line on cursor move + update status bar
         text_w.bind("<KeyRelease>", lambda e: (self._highlight_current_line(), self._mark_dirty()))
         text_w.bind("<ButtonRelease-1>", lambda e: self._highlight_current_line())
 
-        # Right-click context menus
+        # Right-click context menu
         text_w.bind("<Button-3>", self._show_editor_context_menu)
 
     # ==================================================================
-    #  Feature 3: Auto-indent
+    #  Auto-indent
     # ==================================================================
 
     def _on_editor_return(self, event):
         """Insert newline with smart auto-indent."""
         widget = event.widget
-        # Get the current line before cursor
         idx = widget.index(self.tk.INSERT)
         line_num = idx.split(".")[0]
         line_text = widget.get(f"{line_num}.0", f"{line_num}.end")
-        # Measure leading whitespace
         stripped = line_text.lstrip()
         indent = len(line_text) - len(stripped)
         base_indent = line_text[:indent]
-        # Check if line starts with an indent-opener keyword
         first_word = stripped.split()[0].upper().rstrip(":") if stripped.split() else ""
         extra = "  " if first_word in self.INDENT_OPENERS else ""
-        # Insert newline + indent
         widget.insert(self.tk.INSERT, "\n" + base_indent + extra)
         widget.see(self.tk.INSERT)
-        return "break"  # prevent default newline
+        return "break"
 
     # ==================================================================
-    #  Feature 4: Highlight current line
+    #  Highlight current line
     # ==================================================================
 
     def _highlight_current_line(self):
-        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
-        text_w.tag_remove("current_line", "1.0", self.tk.END)
-        current = text_w.index(self.tk.INSERT)
-        line = current.split(".")[0]
-        text_w.tag_add("current_line", f"{line}.0", f"{line}.end+1c")
-        theme = self.THEMES.get(self.current_theme, self.THEMES["dark"])
-        text_w.tag_configure("current_line", background=theme.get("highlight_line", "#2a2d2e"))
-        # Keep below syntax tags
-        text_w.tag_lower("current_line")
+        self.editor_panel.highlight_current_line()
 
     # ==================================================================
-    #  Feature 5: Tab-completion
+    #  Tab-completion
     # ==================================================================
 
     def _on_tab(self, event):
@@ -845,7 +440,6 @@ class TempleCodeApp:
         idx = widget.index(self.tk.INSERT)
         line_num, col = idx.split(".")
         line_text = widget.get(f"{line_num}.0", idx)
-        # Extract the partial word being typed
         import re
         m = re.search(r'([A-Za-z_$:]+)$', line_text)
         if not m:
@@ -854,7 +448,6 @@ class TempleCodeApp:
         prefix = m.group(1).upper()
         matches = [k for k in self.KEYWORDS if k.upper().startswith(prefix)]
         if len(matches) == 1:
-            # Single match — complete it
             completion = matches[0][len(prefix):]
             widget.insert(self.tk.INSERT, completion)
         elif len(matches) > 1:
@@ -873,7 +466,6 @@ class TempleCodeApp:
         popup.attributes("-topmost", True)
         self._ac_popup = popup
 
-        # Position near cursor
         try:
             bbox = widget.bbox(tk.INSERT)
             if bbox:
@@ -899,7 +491,6 @@ class TempleCodeApp:
             sel = lb.curselection()
             if sel:
                 chosen = lb.get(sel[0])
-                # Find partial already typed
                 idx = widget.index(tk.INSERT)
                 line_num = idx.split(".")[0]
                 line_text = widget.get(f"{line_num}.0", idx)
@@ -921,113 +512,23 @@ class TempleCodeApp:
         popup.bind("<FocusOut>", _dismiss)
 
     # ==================================================================
-    #  Feature 6: Command Palette
+    #  Output helpers (delegate to OutputPanel)
     # ==================================================================
-
-    def show_command_palette(self):
-        """Display a searchable command palette for quick access to IDE actions."""
-        tk = self.tk
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Command Palette")
-        dlg.geometry("450x350")
-        dlg.transient(self.root)
-        dlg.grab_set()
-        dlg.resizable(True, True)
-
-        theme = self.THEMES.get(self.current_theme, self.THEMES["dark"])
-        dlg.config(bg=theme["frame_bg"])
-
-        sv = tk.StringVar()
-        entry = tk.Entry(dlg, textvariable=sv, font=("Courier", 12),
-                         bg=theme["input_bg"], fg=theme["input_fg"],
-                         insertbackground=theme["input_fg"])
-        entry.pack(fill=tk.X, padx=10, pady=(10, 5))
-        entry.focus()
-
-        lb = tk.Listbox(
-            dlg, font=("Courier", 11),
-            bg=theme["text_bg"], fg=theme["text_fg"],
-            selectbackground="#094771", selectforeground="white",
-            bd=0, highlightthickness=0)
-        lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-
-        all_cmds = self._palette_commands
-
-        def _filter(*_):
-            q = sv.get().lower()
-            lb.delete(0, tk.END)
-            for name, _ in all_cmds:
-                if q in name.lower():
-                    lb.insert(tk.END, name)
-            if lb.size() > 0:
-                lb.selection_set(0)
-
-        sv.trace_add("write", _filter)
-        _filter()
-
-        def _run(evt=None):
-            sel = lb.curselection()
-            if sel:
-                name = lb.get(sel[0])
-                for n, fn in all_cmds:
-                    if n == name:
-                        dlg.destroy()
-                        self.root.after(50, fn)
-                        return
-
-        def _nav(evt):
-            cur = lb.curselection()
-            idx = cur[0] if cur else 0
-            if evt.keysym == "Down":
-                idx = min(idx + 1, lb.size() - 1)
-            elif evt.keysym == "Up":
-                idx = max(idx - 1, 0)
-            lb.selection_clear(0, tk.END)
-            lb.selection_set(idx)
-            lb.see(idx)
-            return "break"
-
-        entry.bind("<Return>", _run)
-        entry.bind("<Up>",   _nav)
-        entry.bind("<Down>", _nav)
-        lb.bind("<Double-1>", _run)
-        dlg.bind("<Escape>", lambda e: dlg.destroy())
-
-    # ==================================================================
-    #  Feature 7: Output colouring
-    # ==================================================================
-
-    def _setup_output_tags(self):
-        """Configure colour tags on the output widget."""
-        theme = self.THEMES.get(self.current_theme, self.THEMES["dark"])
-        self.output_text.tag_configure("out_error", foreground=theme.get("output_error", "#f44747"))
-        self.output_text.tag_configure("out_warn",  foreground=theme.get("output_warn",  "#cca700"))
-        self.output_text.tag_configure("out_ok",    foreground=theme.get("output_ok",    "#6a9955"))
-
-    # ------------------------------------------------------------------
-    #  Output-widget write helpers
-    # ------------------------------------------------------------------
 
     def _out_write(self, text, tag=None):
         """Write text to output_text."""
-        ot = self.output_text
-        if tag:
-            ot.insert(self.tk.END, text, tag)
-        else:
-            ot.insert(self.tk.END, text)
-        if not (self.interpreter and getattr(self.interpreter, '_waiting_for_input', False)):
-            ot.see(self.tk.END)
+        self.output_panel.write(text, tag)
 
     def _out_clear(self):
         """Clear output_text."""
-        self.output_text.delete("1.0", self.tk.END)
+        self.output_panel.clear()
 
     def _output(self, text, tag=None):
         """Insert text into the output widget, optionally with a colour tag."""
-        self._out_write(text, tag)
+        self.output_panel.write(text, tag)
 
     # ==================================================================
-    #  Feature 8: Ctrl+scroll zoom
+    #  Ctrl+scroll zoom
     # ==================================================================
 
     def _zoom(self, direction):
@@ -1042,160 +543,24 @@ class TempleCodeApp:
             self.apply_font_size(order[new_idx])
 
     # ==================================================================
-    #  Feature 10: Split editor
-    # ==================================================================
-
-    def _toggle_split_editor(self):
-        if self.editor_frame2 in self.editor_paned.panes():
-            # Hide second editor
-            self.editor_paned.forget(self.editor_frame2)
-            self._split_var.set(False)
-        else:
-            self.editor_paned.add(self.editor_frame2)
-            self._split_var.set(True)
-            self._apply_theme_to_editor(self.editor_text2)
-
-    def _apply_theme_to_editor(self, editor):
-        """Apply current theme to an extra editor widget."""
-        theme = self.THEMES[self.current_theme]
-        if hasattr(editor, 'text'):
-            editor.text.config(bg=theme["text_bg"], fg=theme["text_fg"],
-                               insertbackground=theme["text_fg"])
-            if hasattr(editor, 'set_theme'):
-                editor.set_theme(self.current_theme)
-        else:
-            editor.config(bg=theme["text_bg"], fg=theme["text_fg"],
-                          insertbackground=theme["text_fg"])
-        sz = self.FONT_SIZES[self.current_font]
-        if hasattr(editor, 'set_font'):
-            editor.set_font((self.current_font_family, sz["editor"]))
-        else:
-            editor.config(font=(self.current_font_family, sz["editor"]))
-
-    # ==================================================================
-    #  Feature 11: Code folding (simple)
+    #  Code folding (delegate to EditorPanel)
     # ==================================================================
 
     def fold_all(self):
         """Hide lines between matching block openers and closers."""
-        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
-        content = text_w.get("1.0", self.tk.END)
-        lines = content.split("\n")
-        _OPENERS = {"FOR", "WHILE", "IF", "DO", "SELECT", "REPEAT"}
-        _CLOSERS = {"NEXT", "WEND", "ENDIF", "LOOP", "END SELECT"}
-        stack = []
-        regions = []
-        for i, line in enumerate(lines):
-            word = line.strip().split()[0].upper() if line.strip() else ""
-            if word in _OPENERS:
-                stack.append(i)
-            elif word in _CLOSERS or line.strip().upper() in _CLOSERS:
-                if stack:
-                    start = stack.pop()
-                    if i - start > 1:
-                        regions.append((start + 1, i - 1))  # fold inner lines
-        # Elide inner lines from bottom to top to keep line numbers stable
-        for start, end in reversed(regions):
-            tag = f"fold_{start}_{end}"
-            text_w.tag_add(tag, f"{start + 1}.0", f"{end + 1}.end+1c")
-            text_w.tag_configure(tag, elide=True)
+        self.editor_panel.fold_all()
 
     def unfold_all(self):
         """Remove all code-folding tags to expand collapsed regions."""
-        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
-        for tag in list(text_w.tag_names()):
-            if tag.startswith("fold_"):
-                text_w.tag_delete(tag)
+        self.editor_panel.unfold_all()
 
     # ==================================================================
-    #  Feature 14: Export canvas
-    # ==================================================================
-
-    def export_canvas_png(self):
-        """Export the turtle canvas to a PNG file (requires Ghostscript or PIL)."""
-        filename = self.filedialog.asksaveasfilename(
-            title="Export Canvas as PNG", defaultextension=".png",
-            filetypes=[("PNG Image", "*.png"), ("All Files", "*.*")],
-        )
-        if not filename:
-            return
-        try:
-            # Try Pillow first
-            from PIL import Image
-            # Save canvas as PostScript, convert with PIL
-            ps_file = filename + ".ps"
-            self.turtle_canvas.postscript(file=ps_file, colormode="color")
-            img = Image.open(ps_file)
-            img.save(filename, "PNG")
-            os.remove(ps_file)
-            self._output(f"📸 Canvas exported to {filename}\n", "out_ok")
-        except ImportError:
-            # Fallback: save PostScript directly
-            ps_name = filename.replace(".png", ".ps")
-            self.turtle_canvas.postscript(file=ps_name, colormode="color")
-            self._output(f"📸 Canvas exported as PostScript to {ps_name}\n(Install Pillow for PNG)\n", "out_warn")
-        except Exception as e:
-            self._output(f"❌ Export failed: {e}\n", "out_error")
-
-    def export_canvas_svg(self):
-        """Export the turtle canvas to a crude SVG file."""
-        filename = self.filedialog.asksaveasfilename(
-            title="Export Canvas as SVG", defaultextension=".svg",
-            filetypes=[("SVG Image", "*.svg"), ("All Files", "*.*")],
-        )
-        if not filename:
-            return
-        try:
-            w = self.turtle_canvas.winfo_width()
-            h = self.turtle_canvas.winfo_height()
-            items = self.turtle_canvas.find_all()
-            svg_lines = [
-                f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
-                f'viewBox="0 0 {w} {h}">',
-                f'<rect width="{w}" height="{h}" fill="{self.turtle_canvas.cget("bg")}"/>',
-            ]
-            for item in items:
-                itype = self.turtle_canvas.type(item)
-                coords = self.turtle_canvas.coords(item)
-                fill = self.turtle_canvas.itemcget(item, "fill") or "none"
-                outline = self.turtle_canvas.itemcget(item, "outline") or "none"
-                width = self.turtle_canvas.itemcget(item, "width") or "1"
-                if itype == "line" and len(coords) >= 4:
-                    svg_lines.append(
-                        f'<line x1="{coords[0]}" y1="{coords[1]}" '
-                        f'x2="{coords[2]}" y2="{coords[3]}" '
-                        f'stroke="{fill}" stroke-width="{width}"/>'
-                    )
-                elif itype == "oval" and len(coords) >= 4:
-                    cx = (coords[0] + coords[2]) / 2
-                    cy = (coords[1] + coords[3]) / 2
-                    rx = abs(coords[2] - coords[0]) / 2
-                    ry = abs(coords[3] - coords[1]) / 2
-                    svg_lines.append(
-                        f'<ellipse cx="{cx}" cy="{cy}" rx="{rx}" ry="{ry}" '
-                        f'fill="{fill}" stroke="{outline}" stroke-width="{width}"/>'
-                    )
-                elif itype == "rectangle" and len(coords) >= 4:
-                    svg_lines.append(
-                        f'<rect x="{coords[0]}" y="{coords[1]}" '
-                        f'width="{coords[2]-coords[0]}" height="{coords[3]-coords[1]}" '
-                        f'fill="{fill}" stroke="{outline}" stroke-width="{width}"/>'
-                    )
-            svg_lines.append("</svg>")
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write("\n".join(svg_lines))
-            self._output(f"📸 Canvas exported to {filename}\n", "out_ok")
-        except Exception as e:
-            self._output(f"❌ SVG export failed: {e}\n", "out_error")
-
-    # ==================================================================
-    #  Feature 15: Auto dark/light mode
+    #  Auto dark/light mode
     # ==================================================================
 
     def _auto_detect_dark_mode(self):
         """Try to detect OS dark mode and apply matching theme."""
         try:
-            # Freedesktop / GNOME
             import subprocess
             result = subprocess.run(
                 ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
@@ -1209,7 +574,7 @@ class TempleCodeApp:
                 if self.current_theme in ("dark", "monokai", "dracula", "nord"):
                     self.apply_theme("light")
         except Exception:
-            pass  # silently ignore on non-GNOME systems
+            pass
 
     def _toggle_auto_dark(self):
         self.auto_dark = self._auto_dark_var.get()
@@ -1222,7 +587,7 @@ class TempleCodeApp:
     # ==================================================================
 
     def _add_recent(self, path):
-        """Feature 2: track recent files."""
+        """Track recent files."""
         path = str(Path(path).resolve())
         if path in self.recent_files:
             self.recent_files.remove(path)
@@ -1255,8 +620,11 @@ class TempleCodeApp:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
-            self.editor_text.delete("1.0", self.tk.END)
-            self.editor_text.insert("1.0", content)
+            if hasattr(self, 'tab_manager'):
+                self.tab_manager.open_in_tab(filepath, content)
+            else:
+                self.editor_text.delete("1.0", self.tk.END)
+                self.editor_text.insert("1.0", content)
             self.current_file_path = filepath
             self._status_labels["file"].config(text=f"  {os.path.basename(filepath)}")
             self._dirty = False
@@ -1267,16 +635,19 @@ class TempleCodeApp:
             self._output(f"❌ Failed to open {filepath}: {e}\n", "out_error")
 
     def new_file(self):
-        """Clear the editor and start a new file, prompting to discard unsaved changes."""
-        if self._dirty:
-            if not self.messagebox.askyesno("Unsaved Changes",
-                                            "You have unsaved changes. Discard?"):
-                return
-        self.editor_text.delete("1.0", self.tk.END)
-        self.current_file_path = ""
-        self._dirty = False
-        self._update_title()
-        self._status_labels["file"].config(text="  No file  ")
+        """Create a new tab (or clear the editor if tabs aren't ready)."""
+        if hasattr(self, 'tab_manager'):
+            self.tab_manager.new_tab()
+        else:
+            if self._dirty:
+                if not self.messagebox.askyesno("Unsaved Changes",
+                                                "You have unsaved changes. Discard?"):
+                    return
+            self.editor_text.delete("1.0", self.tk.END)
+            self.current_file_path = ""
+            self._dirty = False
+            self._update_title()
+            self._status_labels["file"].config(text="  No file  ")
         self._output("📄 New file created\n")
 
     def load_file(self):
@@ -1305,6 +676,8 @@ class TempleCodeApp:
                 self._output(f"💾 Saved: {filename}\n", "out_ok")
                 self._dirty = False
                 self._update_title()
+                if hasattr(self, 'tab_manager'):
+                    self.tab_manager.mark_saved(filename)
             except Exception as e:
                 self._output(f"❌ Save failed: {e}\n", "out_error")
 
@@ -1317,6 +690,8 @@ class TempleCodeApp:
                 self._output(f"💾 Saved: {self.current_file_path}\n", "out_ok")
                 self._dirty = False
                 self._update_title()
+                if hasattr(self, 'tab_manager'):
+                    self.tab_manager.mark_saved(self.current_file_path)
             except Exception as e:
                 self._output(f"❌ Save failed: {e}\n", "out_error")
         else:
@@ -1327,8 +702,11 @@ class TempleCodeApp:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
-            self.editor_text.delete("1.0", self.tk.END)
-            self.editor_text.insert("1.0", content)
+            if hasattr(self, 'tab_manager'):
+                self.tab_manager.open_in_tab(filepath, content)
+            else:
+                self.editor_text.delete("1.0", self.tk.END)
+                self.editor_text.insert("1.0", content)
             self.current_file_path = filepath
             self._status_labels["file"].config(text=f"  {os.path.basename(filepath)}")
             self._output(f"📚 Loaded example: {filepath}\n", "out_ok")
@@ -1343,10 +721,29 @@ class TempleCodeApp:
                                             "You have unsaved changes. Exit anyway?"):
                 return
         # Cancel the recurring status bar updater before destroying the window
-        if getattr(self, '_status_bar_after_id', None) is not None:
-            self.root.after_cancel(self._status_bar_after_id)
-            self._status_bar_after_id = None
+        self.status_bar_panel.cancel_updates()
         self.root.destroy()
+
+    # ==================================================================
+    #  Tab navigation helpers
+    # ==================================================================
+
+    def _close_current_tab(self):
+        """Close the active editor tab (Ctrl+W)."""
+        if hasattr(self, 'tab_manager'):
+            self.tab_manager.close_tab(self.tab_manager.active_index)
+
+    def _next_tab(self):
+        """Switch to the next editor tab (Ctrl+Tab)."""
+        if hasattr(self, 'tab_manager') and self.tab_manager.tabs:
+            nxt = (self.tab_manager.active_index + 1) % len(self.tab_manager.tabs)
+            self.tab_manager.switch_to(nxt)
+
+    def _prev_tab(self):
+        """Switch to the previous editor tab (Ctrl+Shift+Tab)."""
+        if hasattr(self, 'tab_manager') and self.tab_manager.tabs:
+            prv = (self.tab_manager.active_index - 1) % len(self.tab_manager.tabs)
+            self.tab_manager.switch_to(prv)
 
     # ==================================================================
     #  Dirty flag & title helpers
@@ -1356,7 +753,8 @@ class TempleCodeApp:
         if not self._dirty:
             self._dirty = True
             self._update_title()
-        # Schedule an undo snapshot (debounced via after)
+        if hasattr(self, 'tab_manager'):
+            self.tab_manager.mark_modified()
         if hasattr(self, '_undo_snapshot_after_id'):
             try:
                 self.root.after_cancel(self._undo_snapshot_after_id)
@@ -1419,19 +817,11 @@ class TempleCodeApp:
 
     def clear_output(self):
         """Delete all text from the output panel."""
-        self._out_clear()
+        self.output_panel.clear()
 
     def clear_canvas(self):
         """Clear the turtle graphics canvas and reset the turtle state."""
-        self.turtle_canvas.delete("all")
-        if hasattr(self.interpreter, 'turtle_graphics') and self.interpreter.turtle_graphics:
-            tg = self.interpreter.turtle_graphics
-            tg["x"] = 0.0
-            tg["y"] = 0.0
-            tg["heading"] = 0.0
-            tg["lines"] = []
-            self.interpreter.update_turtle_display()
-        self._output("🎨 Canvas cleared\n")
+        self.graphics_panel.clear()
 
     # ==================================================================
     #  Run / execute
@@ -1482,23 +872,170 @@ class TempleCodeApp:
     def _on_run_finished(self):
         """Called on the main thread when the interpreter thread completes."""
         self._is_running = False
-        # Safety: ensure the focus-lock is always released when the run ends,
-        # even if the thread died before clearing _waiting_for_input itself.
         if self.interpreter:
             self.interpreter.reset_input_state()
+        # Clean up debug controller
+        if hasattr(self, '_debug_controller') and self._debug_controller:
+            self._debug_controller.stop()
+            self._debug_controller = None
+            self._clear_debug_highlight()
+
+    # ==================================================================
+    #  Step Debugger
+    # ==================================================================
+
+    def debug_start(self):
+        """Start a debug session (F5) — run until first breakpoint."""
+        from core.features.debugger import DebugController
+
+        if self._is_running:
+            # If already debugging and paused, treat F5 as continue
+            if hasattr(self, '_debug_controller') and self._debug_controller and self._debug_controller.is_paused:
+                self.debug_continue()
+                return
+            self._output("⚠️  Program is already running.\n", "out_warn")
+            return
+
+        import threading as _threading
+
+        code = self.editor_text.get("1.0", self.tk.END)
+        self._out_clear()
+        self._output("🐛 Starting debug session...\n\n", "out_ok")
+        self._is_running = True
+
+        # Setup interpreter
+        if hasattr(self.interpreter, 'exec_delay_ms'):
+            self.interpreter.exec_delay_ms = self.exec_speed
+        if hasattr(self.interpreter, 'turtle_delay_ms'):
+            self.interpreter.turtle_delay_ms = self.turtle_speed
+        self.interpreter.ide_turtle_canvas = self.turtle_canvas
+        if self.turtle_canvas is not None:
+            self.turtle_canvas.delete("all")
+        self.interpreter.turtle_graphics = None
+        self.interpreter.init_turtle_graphics()
+        self.interpreter.clear_turtle_screen()
+        self.interpreter.debug_mode = True
+
+        # Create and attach debug controller
+        dc = DebugController()
+        self._debug_controller = dc
+        self.interpreter.debug_controller = dc
+
+        def on_pause(line, variables):
+            """Called from interpreter thread when paused."""
+            self._output_proxy.call_on_main(
+                lambda l=line, v=variables: self._debug_on_pause(l, v)
+            )
+
+        def on_stop():
+            self._output_proxy.call_on_main(self._clear_debug_highlight)
+
+        def on_resume():
+            self._output_proxy.call_on_main(self._clear_debug_highlight)
+
+        dc.on_pause = on_pause
+        dc.on_stop = on_stop
+        dc.on_resume = on_resume
+        dc.start()
+
+        def _run():
+            try:
+                self.interpreter.run_program(code, language="templecode")
+                self._output_proxy.call_on_main(
+                    lambda: self._output("\n✅ Debug session ended.\n", "out_ok")
+                )
+            except Exception as e:
+                self._output_proxy.call_on_main(
+                    lambda err=e: self._output(f"\n❌ Error: {err}\n", "out_error")
+                )
+            finally:
+                self._output_proxy.call_on_main(self._on_run_finished)
+
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def debug_step_over(self):
+        """Step over one line (F10)."""
+        if hasattr(self, '_debug_controller') and self._debug_controller:
+            self._debug_controller.step_over()
+        else:
+            self._output("⚠️  No debug session active. Press F5 to start.\n", "out_warn")
+
+    def debug_continue(self):
+        """Continue execution until next breakpoint (F5 when paused)."""
+        if hasattr(self, '_debug_controller') and self._debug_controller:
+            self._debug_controller.continue_()
+        else:
+            self.debug_start()
+
+    def debug_stop(self):
+        """Stop the debug session (Shift+F5)."""
+        if hasattr(self, '_debug_controller') and self._debug_controller:
+            self._debug_controller.stop()
+            self._debug_controller = None
+            self._clear_debug_highlight()
+            if self.interpreter:
+                self.interpreter.running = False
+                self.interpreter.debug_mode = False
+                self.interpreter.debug_controller = None
+            self._output("🛑 Debug session stopped.\n", "out_warn")
+
+    def debug_toggle_breakpoint(self):
+        """Toggle a breakpoint on the current editor line (F9)."""
+        if not self.interpreter:
+            return
+        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
+        try:
+            idx = text_w.index(self.tk.INSERT)
+            line_num = int(idx.split(".")[0]) - 1  # 0-based for interpreter
+            if line_num in self.interpreter.breakpoints:
+                self.interpreter.breakpoints.discard(line_num)
+                text_w.tag_remove("breakpoint", f"{line_num + 1}.0", f"{line_num + 1}.end+1c")
+                self._output(f"🔴 Breakpoint removed at line {line_num + 1}\n")
+            else:
+                self.interpreter.breakpoints.add(line_num)
+                text_w.tag_add("breakpoint", f"{line_num + 1}.0", f"{line_num + 1}.end+1c")
+                text_w.tag_configure("breakpoint", background="#4a1515")
+                self._output(f"🔴 Breakpoint set at line {line_num + 1}\n")
+        except Exception:
+            pass
+
+    def _debug_on_pause(self, line: int, variables: dict):
+        """Called on the main thread when the debugger pauses."""
+        self._output(f"⏸️  Paused at line {line + 1}\n", "out_warn")
+
+        # Highlight paused line in editor
+        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
+        text_w.tag_remove("debug_line", "1.0", self.tk.END)
+        text_w.tag_add("debug_line", f"{line + 1}.0", f"{line + 1}.end+1c")
+        text_w.tag_configure("debug_line", background="#3d3d14")
+        text_w.tag_raise("debug_line")
+        text_w.see(f"{line + 1}.0")
+
+        # Show variable snapshot
+        if variables:
+            var_lines = []
+            for k, v in sorted(variables.items()):
+                val_str = repr(v) if isinstance(v, str) else str(v)
+                if len(val_str) > 60:
+                    val_str = val_str[:57] + "..."
+                var_lines.append(f"  {k} = {val_str}")
+            if var_lines:
+                self._output("📋 Variables:\n" + "\n".join(var_lines[:20]) + "\n")
+
+    def _clear_debug_highlight(self):
+        """Remove the debug line highlight from the editor."""
+        text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
+        try:
+            text_w.tag_remove("debug_line", "1.0", self.tk.END)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     #  Output-queue drain — runs on the main thread every ~16 ms
     # ------------------------------------------------------------------
 
     def _drain_output_queue(self):
-        """Flush the thread-safe output proxy queue onto the real widget.
-
-        Items may be:
-        - str        → written to output_text directly (widget stays NORMAL)
-        - ``CLEAR``  → clear output_text
-        - callable   → executed on the main thread
-        """
+        """Flush the thread-safe output proxy queue onto the real widget."""
         waiting = bool(self.interpreter and self.interpreter.waiting_for_input)
         ot = self.output_text
         try:
@@ -1520,10 +1057,6 @@ class TempleCodeApp:
 
         # Handle input-wait focus management.
         if waiting:
-            # Re-assert keyboard focus on the entry widget every drain tick.
-            # focus_force() works on Wayland/XWayland within the same process,
-            # and calling it every 16 ms means even if Tk moves focus elsewhere
-            # (e.g. after widget.insert() on the output pane) it snaps right back.
             self.input_entry.focus_force()
             if not self._key_capture_active:
                 self._start_key_capture()
@@ -1553,17 +1086,19 @@ class TempleCodeApp:
             bg=theme.get("input_bg", "#1e1e1e"),
             fg=theme.get("input_fg", "#d4d4d4"),
         )
-        # Return focus to the code editor.
         text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
         text_w.focus_set()
+
+    def _on_key_for_inkey(self, event):
+        """Feed printable keystrokes into the interpreter's INKEY$ buffer."""
+        if self._is_running and event.char:
+            self.interpreter._key_buffer.append(event.char)
 
     def stop_code(self):
         """Stop a running program by setting the interpreter's running flag to False."""
         if self.interpreter and self._is_running:
             self.interpreter.running = False
-            # Unblock the interpreter thread if it is waiting for user input
             self.interpreter.cancel_input()
-            # _is_running is cleared by _on_run_finished once the thread exits
             self._output("\n🛑 Program stopped by user.\n", "out_warn")
 
     def _submit_input(self):
@@ -1571,11 +1106,9 @@ class TempleCodeApp:
         value = self.input_entry.get()
         self.input_entry.delete(0, self.tk.END)
 
-        # Signal the interpreter thread waiting on threading.Event
         if self.interpreter and self.interpreter.waiting_for_input:
             self.interpreter.submit_input(value)
         else:
-            # Not waiting — queue it for later use
             self.input_buffer.append(value)
             self._output(f">> {value}\n")
 
@@ -1583,31 +1116,55 @@ class TempleCodeApp:
     #  Theme & font
     # ==================================================================
 
-    @staticmethod
-    def _lighter(hex_color):
-        """Return a slightly lighter version of a hex colour (for hover)."""
-        try:
-            hex_color = hex_color.lstrip("#")
-            if len(hex_color) != 6:
-                return "#505050"
-            r, g, b = int(hex_color[:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-            r = min(255, r + 25)
-            g = min(255, g + 25)
-            b = min(255, b + 25)
-            return f"#{r:02x}{g:02x}{b:02x}"
-        except Exception:
-            return "#505050"
-
     def apply_theme(self, theme_key):
         """Apply the specified color theme to all editor and UI widgets."""
         tk = self.tk
         theme = self.THEMES[theme_key]
 
-        self._apply_theme_editors(tk, theme, theme_key)
-        self._apply_theme_panels(tk, theme)
-        self._apply_theme_buttons(tk, theme)
-        self._apply_theme_statusbar(theme)
-        self._apply_theme_output_tags(theme)
+        # Delegate to extracted panels
+        self.editor_panel.apply_theme(theme, theme_key)
+        self.output_panel.apply_theme(theme)
+        self.graphics_panel.apply_theme(theme)
+        self.toolbar.apply_theme(tk, theme)
+        self.status_bar_panel.apply_theme(theme)
+        if hasattr(self, 'tab_manager'):
+            self.tab_manager.apply_theme(theme)
+        if hasattr(self, 'repl_panel'):
+            self.repl_panel.apply_theme(theme)
+
+        # Panels, frames, inputs (remain inline — they reference root-level widgets)
+        self.root.config(bg=theme["root_bg"])
+        for panel in (self.left_panel, self.right_panel):
+            panel.config(bg=theme["frame_bg"])
+        self.input_frame.config(bg=theme["frame_bg"])
+        self.input_entry.config(
+            bg=theme["input_bg"], fg=theme["input_fg"],
+            insertbackground=theme["input_fg"],
+            highlightbackground=theme["input_bg"],
+            highlightcolor="#007acc",
+            highlightthickness=2,
+        )
+        if self.interpreter:
+            self.interpreter._input_entry_bg = theme["input_bg"]  # pylint: disable=protected-access
+
+        # Labels in input frame
+        for w in self.input_frame.winfo_children():
+            if isinstance(w, tk.Label):
+                w.config(bg=theme["frame_bg"], fg=theme.get("text_fg", "#aaa"))
+
+        # Submit button
+        btn_bg = theme.get("btn_bg", theme.get("input_bg", "#3e3e3e"))
+        btn_fg = theme.get("btn_fg", theme.get("input_fg", "#d4d4d4"))
+        for w in self.input_frame.winfo_children():
+            if isinstance(w, tk.Button):
+                w.config(bg=btn_bg, fg=btn_fg)
+
+        # Paned windows
+        for pw in (self.main_paned, self.right_paned, self.editor_paned):
+            try:
+                pw.config(bg=theme["frame_bg"])
+            except Exception:
+                pass
 
         # Update status bar theme label
         if "theme" in self._status_labels:
@@ -1617,133 +1174,10 @@ class TempleCodeApp:
         self._save()
         self._highlight_current_line()
 
-    def _apply_theme_editors(self, tk, theme, theme_key):
-        """Apply theme colours to editor and output widgets."""
-        for editor in (self.editor_text, self.editor_text2):
-            if editor is None:
-                continue
-            if hasattr(editor, 'text'):
-                editor.text.config(
-                    bg=theme["text_bg"], fg=theme["text_fg"],
-                    insertbackground=theme["text_fg"],
-                )
-                if hasattr(editor, 'set_theme'):
-                    editor.set_theme(theme_key)
-                if hasattr(editor, 'line_numbers'):
-                    editor.line_numbers.config(
-                        bg=self.LINE_NUMBER_BG.get(theme_key, "#1e1e1e")
-                    )
-            else:
-                editor.config(
-                    bg=theme["text_bg"], fg=theme["text_fg"],
-                    insertbackground=theme["text_fg"],
-                )
-
-        self.output_text.config(
-            bg=theme["text_bg"], fg=theme["text_fg"],
-            insertbackground=theme["text_fg"],
-        )
-        self.turtle_canvas.config(
-            bg=theme["canvas_bg"], highlightbackground=theme["canvas_border"],
-        )
-
-    def _apply_theme_panels(self, tk, theme):
-        """Apply theme colours to panels, frames, inputs, and labels."""
-        self.root.config(bg=theme["root_bg"])
-        for panel in (self.left_panel, self.right_panel):
-            panel.config(bg=theme["frame_bg"])
-        for frame in (self.editor_frame, self.editor_frame2,
-                      self.output_frame, self.graphics_frame):
-            if frame:
-                frame.config(bg=theme["editor_frame_bg"],
-                             fg=theme["editor_frame_fg"])
-        for f in (self.input_frame, self.button_frame, self._speed_frame):
-            if f:
-                f.config(bg=theme["frame_bg"])
-        self.input_entry.config(
-            bg=theme["input_bg"], fg=theme["input_fg"],
-            insertbackground=theme["input_fg"],
-            # Keep the border colour matched to the entry background so the
-            # system-grey default never bleeds through on dark/high-contrast themes.
-            highlightbackground=theme["input_bg"],
-            highlightcolor="#007acc",
-            highlightthickness=2,
-        )
-        # Keep interpreter aware of the current input-bar bg colour
-        if self.interpreter:
-            self.interpreter._input_entry_bg = theme["input_bg"]  # pylint: disable=protected-access
-
-        # Labels in input frame / speed frame
-        for container in (self.input_frame, self._speed_frame):
-            if not container:
-                continue
-            for w in container.winfo_children():
-                if isinstance(w, tk.Label):
-                    w.config(bg=theme["frame_bg"],
-                             fg=theme.get("text_fg", "#aaa"))
-                elif isinstance(w, tk.Scale):
-                    w.config(bg=theme["frame_bg"],
-                             fg=theme.get("text_fg", "#aaa"),
-                             troughcolor=theme["text_bg"])
-
-        # Paned windows
-        for pw in (self.main_paned, self.right_paned, self.editor_paned):
-            try:
-                pw.config(bg=theme["frame_bg"])
-            except Exception:
-                pass
-
-    def _apply_theme_buttons(self, tk, theme):
-        """Apply theme colours to toolbar and submit buttons."""
-        btn_bg = theme.get("btn_bg", theme.get("input_bg", "#3e3e3e"))
-        btn_fg = theme.get("btn_fg", theme.get("input_fg", "#d4d4d4"))
-        for w in self.button_frame.winfo_children():
-            if isinstance(w, tk.Button):
-                # Keep Run button green
-                if "Run" in str(w.cget("text")):
-                    w.config(fg="white")
-                else:
-                    w.config(bg=btn_bg, fg=btn_fg)
-                    # Re-bind hover with new theme colour
-                    w.bind("<Enter>",
-                           lambda e, b=w, c=btn_bg: b.config(
-                               bg=self._lighter(c)))
-                    w.bind("<Leave>",
-                           lambda e, b=w, c=btn_bg: b.config(bg=c))
-
-        # Submit button
-        for w in self.input_frame.winfo_children():
-            if isinstance(w, tk.Button):
-                w.config(bg=btn_bg, fg=btn_fg)
-
-    def _apply_theme_statusbar(self, theme):
-        """Apply theme colours to the status bar."""
-        sb_bg = theme.get("statusbar_bg", "#007acc")
-        sb_fg = theme.get("statusbar_fg", "#ffffff")
-        if self.status_bar:
-            self.status_bar.config(bg=sb_bg)
-            for lbl in self._status_labels.values():
-                lbl.config(bg=sb_bg, fg=sb_fg)
-
-    def _apply_theme_output_tags(self, theme):
-        """Apply theme colours to output text tags."""
-        self.output_text.tag_configure(
-            "out_error", foreground=theme.get("output_error", "#f44747"))
-        self.output_text.tag_configure(
-            "out_warn", foreground=theme.get("output_warn", "#cca700"))
-        self.output_text.tag_configure(
-            "out_ok", foreground=theme.get("output_ok", "#6a9955"))
-
     def apply_font_size(self, size_key):
         """Apply the specified font size preset to editor and output widgets."""
         sz = self.FONT_SIZES[size_key]
-        for editor in (self.editor_text, self.editor_text2):
-            if editor is None:
-                continue
-            if hasattr(editor, 'set_font'):
-                editor.set_font((self.current_font_family, sz["editor"]))
-            else:
-                editor.config(font=(self.current_font_family, sz["editor"]))
+        self.editor_panel.apply_font(self.current_font_family, sz["editor"])
         self.output_text.config(font=(self.current_font_family, sz["output"]))
         self.current_font = size_key
         if "font" in self._status_labels:
@@ -1753,13 +1187,7 @@ class TempleCodeApp:
     def apply_font_family(self, family):
         """Apply the specified font family to editor and output widgets."""
         sz = self.FONT_SIZES[self.current_font]
-        for editor in (self.editor_text, self.editor_text2):
-            if editor is None:
-                continue
-            if hasattr(editor, 'set_font'):
-                editor.set_font((family, sz["editor"]))
-            else:
-                editor.config(font=(family, sz["editor"]))
+        self.editor_panel.apply_font(family, sz["editor"])
         self.output_text.config(font=(family, sz["output"]))
         self.current_font_family = family
         if "font" in self._status_labels:
@@ -1790,164 +1218,30 @@ class TempleCodeApp:
                 more.add_command(label=name, command=lambda n=name: self.apply_font_family(n))
 
     # ==================================================================
-    #  Dialogs
+    #  Code Formatter
     # ==================================================================
 
-    def show_find_dialog(self):
-        """Display a Find dialog for searching text in the editor."""
-        tk = self.tk
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Find")
-        dlg.geometry("400x150")
-        dlg.resizable(False, False)
-        dlg.transient(self.root)
-        dlg.grab_set()
-
-        tk.Label(dlg, text="Find:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        search_var = tk.StringVar()
-        se = tk.Entry(dlg, textvariable=search_var, width=30)
-        se.grid(row=0, column=1, padx=5, pady=5)
-        se.focus()
-
-        opts = tk.Frame(dlg)
-        opts.grid(row=1, column=0, columnspan=2, pady=5)
-        case_var, whole_var, regex_var = tk.BooleanVar(), tk.BooleanVar(), tk.BooleanVar()
-        tk.Checkbutton(opts, text="Case sensitive", variable=case_var).pack(side=tk.LEFT, padx=5)
-        tk.Checkbutton(opts, text="Whole word", variable=whole_var).pack(side=tk.LEFT, padx=5)
-        tk.Checkbutton(opts, text="Regex", variable=regex_var).pack(side=tk.LEFT, padx=5)
-
-        def do_find():
-            term = search_var.get()
-            if not term:
-                return
-            self.editor_text.clear_search_highlights()
-            match = self.editor_text.find_text(
-                term, start_pos=self.editor_text.index(tk.INSERT),
-                case_sensitive=case_var.get(), whole_word=whole_var.get(), regex=regex_var.get(),
-            )
-            if match:
-                s, e = match
-                self.editor_text.tag_remove("sel", "1.0", tk.END)
-                self.editor_text.tag_add("sel", s, e)
-                self.editor_text.mark_set(tk.INSERT, e)
-                self.editor_text.see(s)
-                self.editor_text.highlight_search_results(
-                    term, case_sensitive=case_var.get(),
-                    whole_word=whole_var.get(), regex=regex_var.get(),
-                )
-                self._output(f"Found '{term}' at {s}\n")
-            else:
-                self._output(f"'{term}' not found\n", "out_warn")
-
-        bf = tk.Frame(dlg)
-        bf.grid(row=2, column=0, columnspan=2, pady=10)
-        tk.Button(bf, text="Find", command=do_find, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(bf, text="Find Next", command=do_find, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(bf, text="Close", command=dlg.destroy, width=10).pack(side=tk.LEFT, padx=5)
-        se.bind('<Return>', lambda e: do_find())
-        dlg.bind('<Escape>', lambda e: dlg.destroy())
-
-    def show_replace_dialog(self):
-        """Display a Find & Replace dialog for the editor."""
-        tk = self.tk
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Replace")
-        dlg.geometry("400x180")
-        dlg.resizable(False, False)
-        dlg.transient(self.root)
-        dlg.grab_set()
-
-        tk.Label(dlg, text="Find:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
-        search_var = tk.StringVar()
-        tk.Entry(dlg, textvariable=search_var, width=30).grid(row=0, column=1, padx=5, pady=5)
-
-        tk.Label(dlg, text="Replace:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
-        replace_var = tk.StringVar()
-        tk.Entry(dlg, textvariable=replace_var, width=30).grid(row=1, column=1, padx=5, pady=5)
-
-        opts = tk.Frame(dlg)
-        opts.grid(row=2, column=0, columnspan=2, pady=5)
-        case_var, whole_var, regex_var = tk.BooleanVar(), tk.BooleanVar(), tk.BooleanVar()
-        tk.Checkbutton(opts, text="Case sensitive", variable=case_var).pack(side=tk.LEFT, padx=5)
-        tk.Checkbutton(opts, text="Whole word", variable=whole_var).pack(side=tk.LEFT, padx=5)
-        tk.Checkbutton(opts, text="Regex", variable=regex_var).pack(side=tk.LEFT, padx=5)
-
-        def do_replace():
-            s, r = search_var.get(), replace_var.get()
-            if not s:
-                return
-            replaced = self.editor_text.replace_text(
-                s, r, start_pos=self.editor_text.index(tk.INSERT),
-                case_sensitive=case_var.get(), whole_word=whole_var.get(), regex=regex_var.get(),
-            )
-            if replaced:
-                self._output(f"Replaced '{s}' with '{r}'\n", "out_ok")
-                self.editor_text.highlight_search_results(
-                    s, case_sensitive=case_var.get(),
-                    whole_word=whole_var.get(), regex=regex_var.get(),
-                )
-            else:
-                self._output(f"'{s}' not found\n", "out_warn")
-
-        def do_replace_all():
-            s, r = search_var.get(), replace_var.get()
-            if not s:
-                return
-            count = self.editor_text.replace_all(
-                s, r, case_sensitive=case_var.get(),
-                whole_word=whole_var.get(), regex=regex_var.get(),
-            )
-            self._output(f"Replaced {count} occurrence(s) of '{s}' with '{r}'\n", "out_ok")
-            self.editor_text.clear_search_highlights()
-
-        bf = tk.Frame(dlg)
-        bf.grid(row=3, column=0, columnspan=2, pady=10)
-        tk.Button(bf, text="Replace", command=do_replace, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(bf, text="Replace All", command=do_replace_all, width=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(bf, text="Close", command=dlg.destroy, width=10).pack(side=tk.LEFT, padx=5)
-        dlg.bind('<Escape>', lambda e: dlg.destroy())
-
-    def show_error_history(self):
-        """Display a window listing all errors from the last interpretation."""
-        if not self.interpreter or not self.interpreter.error_history:
-            self.messagebox.showinfo("Error History", "No errors recorded.")
+    def _format_editor_code(self):
+        """Format / auto-indent the code in the editor."""
+        text_w = self.editor_text
+        source = text_w.get("1.0", self.tk.END)
+        if not source.strip():
             return
-        tk = self.tk
-        win = tk.Toplevel(self.root)
-        win.title("Error History")
-        win.geometry("600x400")
-        tw = self.scrolledtext.ScrolledText(win, wrap=tk.WORD)
-        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        for i, err in enumerate(self.interpreter.error_history[-10:], 1):
-            tw.insert(tk.END, f"{i}. Line {err.get('line', 'N/A')}: {err['message']}\n")
-        tw.config(state=tk.DISABLED)
 
-    def show_about(self):
-        """Display the About dialog with version and credits."""
-        sep = "-" * 32
-        self.messagebox.showinfo("Time Warp II", (
-            f"{sep}\n"
-            "Time Warp II\nVersion 2.0.0\n\n"
-            "A single-language IDE for TempleCode,\n"
-            "a fusion of BASIC, PILOT, and Logo\n"
-            "inspired by the early 1990s.\n\n"
-            "FEATURES:\n"
-            "  • BASIC (PRINT, LET, IF/ELSEIF, FOR, ON GOTO, UNSET, EVAL, PROGRAMINFO)\n"
-            "  • PILOT (T:, A:, M:, Y:, N:, J:, C:, G:)\n"
-            "  • Logo turtle (FORWARD, RIGHT, REPEAT, LABEL, CIRCLEFILL, RECTFILL, PSET, PRESET, POINT)\n"
-            "  • Sound support (BEEP, PLAYNOTE, SOUND)\n"
-            "  • Built-in example programs\n"
-            "  • Turtle canvas with PNG/SVG export\n"
-            "  • 9 colour themes (auto dark/light)\n"
-            "  • Tab-completion & Command Palette\n"
-            "  • Code folding, split editor, auto-indent\n"
-            "  • Execution & turtle speed controls\n"
-            "  • Save / Save As, dirty flag, recent files\n"
-            "  • Stop button, Quick Reference, Go to Line\n"
-            "  • Right-click context menus\n\n"
-            f"{sep}\n"
-            "Copyright © 2025-2026 Honey Badger Universe"
-        ))
+        formatted = self._format_code(source)
+
+        cursor_pos = text_w.index(self.tk.INSERT)
+        text_w.delete("1.0", self.tk.END)
+        text_w.insert("1.0", formatted.rstrip("\n"))
+
+        try:
+            text_w.mark_set(self.tk.INSERT, cursor_pos)
+            text_w.see(cursor_pos)
+        except Exception:
+            pass
+
+        self._mark_dirty()
+        self._output("✨ Code formatted.\n", "out_ok")
 
     # ==================================================================
     #  Testing
@@ -1974,6 +1268,28 @@ class TempleCodeApp:
             self._output(f"\n❌ Smoke test failed: {e}\n", "out_error")
 
     # ==================================================================
+    #  Right-click context menu
+    # ==================================================================
+
+    def _show_editor_context_menu(self, event):
+        from ui import dialogs
+        tk = self.tk
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Cut",   command=lambda: self._editor_event("<<Cut>>"))
+        menu.add_command(label="Copy",  command=lambda: self._editor_event("<<Copy>>"))
+        menu.add_command(label="Paste", command=lambda: self._editor_event("<<Paste>>"))
+        menu.add_separator()
+        menu.add_command(label="Select All", command=self.select_all)
+        menu.add_separator()
+        menu.add_command(label="Go to Line...", command=lambda: dialogs.show_goto_line_dialog(self))
+        menu.add_command(label="Find...", command=lambda: dialogs.show_find_dialog(self))
+        menu.add_command(label="Replace...", command=lambda: dialogs.show_replace_dialog(self))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    # ==================================================================
     #  Utility
     # ==================================================================
 
@@ -1986,610 +1302,11 @@ class TempleCodeApp:
             return []
 
     # ==================================================================
-    #  Canvas resize handler
-    # ==================================================================
-
-    def _on_canvas_resize(self, event):
-        """Keep the turtle centre in sync when the canvas is resized."""
-        if (self.interpreter
-                and hasattr(self.interpreter, 'turtle_graphics')
-                and self.interpreter.turtle_graphics):
-            self.interpreter.turtle_graphics["center_x"] = event.width // 2
-            self.interpreter.turtle_graphics["center_y"] = event.height // 2
-
-    # ==================================================================
-    #  Right-click context menus
-    # ==================================================================
-
-    def _show_editor_context_menu(self, event):
-        tk = self.tk
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Cut",   command=lambda: self._editor_event("<<Cut>>"))
-        menu.add_command(label="Copy",  command=lambda: self._editor_event("<<Copy>>"))
-        menu.add_command(label="Paste", command=lambda: self._editor_event("<<Paste>>"))
-        menu.add_separator()
-        menu.add_command(label="Select All", command=self.select_all)
-        menu.add_separator()
-        menu.add_command(label="Go to Line...", command=self.show_goto_line_dialog)
-        menu.add_command(label="Find...", command=self.show_find_dialog)
-        menu.add_command(label="Replace...", command=self.show_replace_dialog)
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
-
-    # ==================================================================
-    #  Go to Line dialog
-    # ==================================================================
-
-    def show_goto_line_dialog(self):
-        """Display a dialog to jump to a specific line number."""
-        tk = self.tk
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Go to Line")
-        dlg.geometry("300x100")
-        dlg.resizable(False, False)
-        dlg.transient(self.root)
-        dlg.grab_set()
-
-        tk.Label(dlg, text="Line number:").pack(padx=10, pady=(10, 0), anchor="w")
-        line_var = tk.StringVar()
-        entry = tk.Entry(dlg, textvariable=line_var, width=20)
-        entry.pack(padx=10, pady=5, fill=tk.X)
-        entry.focus()
-
-        def _goto():
-            try:
-                num = int(line_var.get())
-                text_w = self.editor_text.text if hasattr(self.editor_text, 'text') else self.editor_text
-                text_w.mark_set(tk.INSERT, f"{num}.0")
-                text_w.see(f"{num}.0")
-                self._highlight_current_line()
-                dlg.destroy()
-            except ValueError:
-                pass
-
-        entry.bind("<Return>", lambda e: _goto())
-        tk.Button(dlg, text="Go", command=_goto, width=8).pack(pady=(0, 10))
-        dlg.bind("<Escape>", lambda e: dlg.destroy())
-
-    # ==================================================================
-    #  Help dialogs
-    # ==================================================================
-
-    def show_quick_reference(self):
-        """Display a scrollable quick-reference for TempleCode commands."""
-        tk = self.tk
-        win = tk.Toplevel(self.root)
-        win.title("TempleCode Quick Reference")
-        win.geometry("700x550")
-        tw = self.scrolledtext.ScrolledText(win, wrap=tk.WORD, font=("Courier", 10))
-        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        ref = (
-            "═══════════════════ TEMPLECODE QUICK REFERENCE ═══════════════════\n\n"
-            "─── BASIC COMMANDS ───────────────────────────────────────────────\n"
-            "  PRINT expr ; expr         Print values (;=no newline, ,=tab)\n"
-            "  LET var = expr            Assign a variable\n"
-            "  INPUT \"prompt\"; var       Read user input\n"
-            "  IF cond THEN stmt         Single-line conditional\n"
-            "  IF cond THEN              Multi-line conditional block\n"
-            "    ...                     (supports ELSEIF, ELSE, END IF)\n"
-            "  END IF  / ENDIF\n"
-            "  FOR v = a TO b [STEP s]   Counted loop\n"
-            "  NEXT v\n"
-            "  WHILE cond                Condition loop\n"
-            "  WEND\n"
-            "  DO [WHILE|UNTIL cond]     Do-loop\n"
-            "  LOOP [WHILE|UNTIL cond]\n"
-            "  GOTO label                Jump to label\n"
-            "  GOSUB label / RETURN      Subroutine call\n"
-            "  ON n GOTO l1,l2,...        Computed branch\n"
-            "  ON n GOSUB l1,l2,...       Computed subroutine call\n"
-            "  SELECT CASE expr          Multi-branch\n"
-            "  CASE val / CASE ELSE\n"
-            "  END SELECT\n"
-            "  DIM arr(size)             Declare array\n"
-            "  DATA 1,2,3 / READ v       Inline data\n"
-            "  RESTORE                   Reset DATA pointer\n"
-            "  SWAP a, b                 Swap two variables\n"
-            "  INCR v [,n] / DECR v [,n] Increment/decrement\n"
-            "  DELAY ms / SLEEP s        Pause execution\n"
-            "  RANDOMIZE [seed]          Seed random generator\n"
-            "  CLS                       Clear output\n"
-            "  BEEP                      System bell\n"
-            "  TAB n / SPC n             Print spacing\n"
-            "  EXIT FOR / EXIT DO / EXIT WHILE\n"
-            "  REM comment  / ' comment  Comments\n"
-            "  END / STOP                End program\n\n"
-            "  Math: SIN COS TAN ATN LOG EXP SQRT ABS INT CEIL FIX RND RANDINT\n"
-            "  String: LEN MID$ LEFT$ RIGHT$ CHR$ ASC STR$ VAL TRIM CONTAINS STARTSWITH ENDSWITH\n"
-            "  Utility: TIMER  DATE$  TIME$  NOW$  TYPE(expr)  EVAL  PROGRAMINFO\n"
-            "  Graphics: CIRCLEFILL  RECTFILL  SETFILLCOLOR  SETBACKGROUND  FILL\n"
-            "  File: FILEEXISTS  COPYFILE  DELETEFILE  READFILE  WRITEFILE  APPENDFILE\n"
-            "  HELP\n\n"
-            "─── PILOT COMMANDS ──────────────────────────────────────────────\n"
-            "  T: text              Type / print text ($VAR interpolation)\n"
-            "  A: [varname]         Accept user input\n"
-            "  M: pattern1,pat2     Match answer against patterns\n"
-            "  Y: command           Execute if last match succeeded\n"
-            "  N: command           Execute if last match failed\n"
-            "  J: label             Jump to label\n"
-            "  C: var=expr          Compute / assign\n"
-            "  C: *label            Call subroutine\n"
-            "  E:                   End subroutine / program\n"
-            "  R: remark            Comment\n"
-            "  U: var=expr          Use / set variable\n"
-            "  L: label             Define label\n"
-            "  G: logo_command      Inline Logo command\n"
-            "  S: OP var            String op (UPPER LOWER LEN REVERSE TRIM)\n"
-            "  D: arr(n)            Dimension array\n"
-            "  P: ms                Pause (milliseconds)\n"
-            "  X: command           Execute any command inline\n\n"
-            "─── LOGO TURTLE COMMANDS ────────────────────────────────────────\n"
-            "  FORWARD n / FD n     Move forward\n"
-            "  BACK n / BK n        Move backward\n"
-            "  LEFT n / LT n        Turn left\n"
-            "  RIGHT n / RT n       Turn right\n"
-            "  PENUP / PU           Lift pen\n"
-            "  PENDOWN / PD         Lower pen\n"
-            "  HOME                 Return to centre\n"
-            "  CLEARSCREEN / CS     Clear and reset\n"
-            "  SETXY x y            Move to position\n"
-            "  SETX x / SETY y      Set coordinate\n"
-            "  SETHEADING n         Set angle (0=North, clockwise)\n"
-            "  TOWARDS x y          Point toward coordinates\n"
-            "  SHOWTURTLE / ST      Show turtle\n"
-            "  HIDETURTLE / HT      Hide turtle\n"
-            "  SETCOLOR colour      Set pen colour (name or 0-15)\n"
-            "  SETPENSIZE n         Set pen width\n"
-            "  SETFILLCOLOR colour  Set fill colour\n"
-            "  SETBACKGROUND colour Set canvas colour\n"
-            "  CIRCLE r             Draw circle\n"
-            "  ARC angle [r]        Draw arc\n"
-            "  DOT [size]           Draw dot\n"
-            "  RECT w [h]           Draw rectangle\n"
-            "  SQUARE side          Draw square\n"
-            "  TRIANGLE side        Draw equilateral triangle\n"
-            "  POLYGON sides len    Draw regular polygon\n"
-            "  STAR points len      Draw star\n"
-            "  LABEL \"text\" [size]  Draw text at turtle position\n"
-            "  REPEAT n [ cmds ]    Repeat commands n times\n"
-            "  MAKE \"var value      Set variable\n"
-            "  TO name :p1 :p2      Define procedure\n"
-            "    ...body...\n"
-            "  END\n"
-            "  HEADING / POS        Query turtle state\n"
-            "  PENCOLOR? / PENSIZE? Query pen state\n"
-            "  WRAP / WINDOW / FENCE Screen boundary mode\n"
-            "  TRACE / NOTRACE      Toggle debug tracing\n\n"
-            "═══════════════════════════════════════════════════════════════════\n"
-        )
-        tw.insert(tk.END, ref)
-        tw.config(state=tk.DISABLED)
-
-    def show_keyboard_shortcuts(self):
-        """Display a dialog listing all keyboard shortcuts."""
-        shortcuts = (
-            "Keyboard Shortcuts\n"
-            "──────────────────────────\n\n"
-            "F5               Run Program\n"
-            "Escape           Stop Program\n"
-            "Ctrl+N           New File\n"
-            "Ctrl+O           Open File\n"
-            "Ctrl+S           Save\n"
-            "Ctrl+Shift+S     Save As\n"
-            "Ctrl+Q           Exit\n"
-            "Ctrl+Z           Undo\n"
-            "Ctrl+Y           Redo\n"
-            "Ctrl+A           Select All\n"
-            "Ctrl+F           Find\n"
-            "Ctrl+H           Replace\n"
-            "Ctrl+G           Go to Line\n"
-            "Ctrl+Shift+P     Command Palette\n"
-            "Ctrl++/Ctrl+-    Zoom In/Out\n"
-            "Ctrl+Scroll      Zoom\n"
-            "Tab              Autocomplete\n"
-        )
-        self.messagebox.showinfo("Keyboard Shortcuts", shortcuts)
-
-    # ==================================================================
-    #  Watch Expressions (Debug)
-    # ==================================================================
-
-    def _add_watch_dialog(self):
-        """Prompt the user to add a watch expression."""
-        from tkinter import simpledialog  # noqa: C0415
-        expr = simpledialog.askstring(
-            "Add Watch", "Variable name or expression to watch:",
-            parent=self.root,
-        )
-        if expr:
-            self._watch_manager.add(expr)
-            self._output(f"👁  Watch added: {expr}\n", "out_ok")
-
-    def _show_watches(self):
-        """Display current watch expression values in a dialog."""
-        tk = self.tk
-        win = tk.Toplevel(self.root)
-        win.title("Watch Expressions")
-        win.geometry("500x350")
-        win.transient(self.root)
-
-        tw = self.scrolledtext.ScrolledText(win, wrap=tk.WORD, font=("Courier", 10))
-        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        if not self._watch_manager.expressions:
-            tw.insert(tk.END, "(no watch expressions set)\n\nUse Debug → Add Watch Expression to add one.")
-        else:
-            tw.insert(tk.END, "═══ WATCH EXPRESSIONS ═══\n\n")
-            pairs = self._watch_manager.evaluate_all(self.interpreter)
-            for expr, val in pairs:
-                tw.insert(tk.END, f"  {expr} = {val}\n")
-            tw.insert(tk.END, "\n═══ ALL VARIABLES ═══\n\n")
-            for k, v in sorted(self.interpreter.variables.items()):
-                tw.insert(tk.END, f"  {k} = {v!r}\n")
-
-        tw.config(state=tk.DISABLED)
-
-        btn_frame = tk.Frame(win)
-        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        tk.Button(btn_frame, text="Add Watch", command=lambda: (
-            self._add_watch_dialog(), win.destroy(), self._show_watches()
-        )).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Clear All", command=lambda: (
-            self._watch_manager.clear(), win.destroy(),
-            self._output("👁  All watches cleared.\n", "out_ok")
-        )).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Refresh", command=lambda: (
-            win.destroy(), self._show_watches()
-        )).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
-
-    # ==================================================================
-    #  Program Profiler
-    # ==================================================================
-
-    def _show_profiler_report(self):
-        """Display the profiler report in a scrollable window."""
-        tk = self.tk
-        win = tk.Toplevel(self.root)
-        win.title("Profiler Report")
-        win.geometry("700x500")
-        win.transient(self.root)
-
-        tw = self.scrolledtext.ScrolledText(win, wrap=tk.NONE, font=("Courier", 10))
-        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        if not self._profiler.get_stats():
-            tw.insert(tk.END, "No profiling data.\n\n"
-                      "Enable the profiler via Debug → Enable Profiler,\n"
-                      "then run a program.")
-        else:
-            tw.insert(tk.END, self._profiler.format_report())
-
-        tw.config(state=tk.DISABLED)
-
-        btn_frame = tk.Frame(win)
-        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        tk.Button(btn_frame, text="Reset", command=lambda: (
-            self._profiler.reset(),
-            self._output("📊 Profiler data cleared.\n", "out_ok"),
-            win.destroy()
-        )).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
-
-    # ==================================================================
-    #  Code Formatter
-    # ==================================================================
-
-    def _format_editor_code(self):
-        """Format / auto-indent the code in the editor."""
-        text_w = self.editor_text
-        source = text_w.get("1.0", self.tk.END)
-        if not source.strip():
-            return
-
-        formatted = self._format_code(source)
-
-        # Replace editor content
-        cursor_pos = text_w.index(self.tk.INSERT)
-        text_w.delete("1.0", self.tk.END)
-        text_w.insert("1.0", formatted.rstrip("\n"))
-
-        # Restore cursor
-        try:
-            text_w.mark_set(self.tk.INSERT, cursor_pos)
-            text_w.see(cursor_pos)
-        except Exception:
-            pass
-
-        self._mark_dirty()
-        self._output("✨ Code formatted.\n", "out_ok")
-
-    # ==================================================================
-    #  Snippet Manager
-    # ==================================================================
-
-    def _show_snippet_picker(self):
-        """Show a quick-pick list of snippets to insert."""
-        tk = self.tk
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Insert Snippet")
-        dlg.geometry("450x400")
-        dlg.transient(self.root)
-        dlg.grab_set()
-
-        tk.Label(dlg, text="Select a snippet to insert:").pack(padx=10, pady=(10, 5), anchor="w")
-
-        # Filter entry
-        filter_var = tk.StringVar()
-        filter_entry = tk.Entry(dlg, textvariable=filter_var)
-        filter_entry.pack(fill=tk.X, padx=10, pady=(0, 5))
-        filter_entry.focus()
-
-        # Listbox
-        list_frame = tk.Frame(dlg)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=10)
-        scrollbar = tk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Courier", 10))
-        listbox.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=listbox.yview)
-
-        snippets = self._snippet_manager.all_snippets()
-        snippet_keys = sorted(snippets.keys())
-
-        def refresh_list(*_args):
-            listbox.delete(0, tk.END)
-            filt = filter_var.get().lower()
-            for key in snippet_keys:
-                snip = snippets[key]
-                label = f"{snip.get('prefix', ''):10s}  {snip.get('label', key)}"
-                if filt and filt not in label.lower() and filt not in key.lower():
-                    continue
-                listbox.insert(tk.END, label)
-
-        filter_var.trace_add("write", refresh_list)
-        refresh_list()
-
-        # Description label
-        desc_label = tk.Label(dlg, text="", wraplength=400, anchor="w", justify="left")
-        desc_label.pack(fill=tk.X, padx=10, pady=5)
-
-        def on_select(_event=None):
-            sel = listbox.curselection()
-            if not sel:
-                return
-            # Map back to key
-            text = listbox.get(sel[0])
-            prefix = text[:10].strip()
-            for key in snippet_keys:
-                if snippets[key].get("prefix", "") == prefix:
-                    snip = snippets[key]
-                    desc_label.config(text=snip.get("description", ""))
-                    break
-
-        listbox.bind("<<ListboxSelect>>", on_select)
-
-        def insert_selected():
-            sel = listbox.curselection()
-            if not sel:
-                return
-            text = listbox.get(sel[0])
-            prefix = text[:10].strip()
-            for key in snippet_keys:
-                if snippets[key].get("prefix", "") == prefix:
-                    body = snippets[key].get("body", "")
-                    self.editor_text.insert(self.tk.INSERT, body)
-                    self._mark_dirty()
-                    self._output(f"✂️  Snippet inserted: {snippets[key].get('label', key)}\n", "out_ok")
-                    dlg.destroy()
-                    return
-
-        tk.Button(dlg, text="Insert", command=insert_selected).pack(side=tk.LEFT, padx=10, pady=10)
-        tk.Button(dlg, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT, padx=10, pady=10)
-        listbox.bind("<Double-Button-1>", lambda e: insert_selected())
-        dlg.bind("<Return>", lambda e: insert_selected())
-        dlg.bind("<Escape>", lambda e: dlg.destroy())
-
-    def _show_snippet_manager(self):
-        """Show a dialog to manage (add/edit/delete) user snippets."""
-        tk = self.tk
-        win = tk.Toplevel(self.root)
-        win.title("Manage Snippets")
-        win.geometry("600x500")
-        win.transient(self.root)
-
-        # Top: list of snippets
-        list_frame = tk.LabelFrame(win, text="Snippets", padx=5, pady=5)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        scrollbar = tk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Courier", 10))
-        listbox.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=listbox.yview)
-
-        snippets = self._snippet_manager.all_snippets()
-
-        def refresh():
-            nonlocal snippets
-            snippets = self._snippet_manager.all_snippets()
-            listbox.delete(0, tk.END)
-            for key in sorted(snippets.keys()):
-                s = snippets[key]
-                builtin = " (built-in)" if key in self._snippet_manager.BUILTIN_SNIPPETS and not self._snippet_manager.is_user_snippet(key) else ""
-                listbox.insert(tk.END, f"{s.get('prefix', ''):10s}  {s.get('label', key)}{builtin}")
-
-        refresh()
-
-        # Buttons
-        btn_frame = tk.Frame(win)
-        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-
-        def add_snippet():
-            self._snippet_edit_dialog(win, callback=refresh)
-
-        def delete_snippet():
-            sel = listbox.curselection()
-            if not sel:
-                return
-            key = sorted(snippets.keys())[sel[0]]
-            if self._snippet_manager.remove(key):
-                self._output(f"🗑  Snippet removed: {key}\n", "out_ok")
-            refresh()
-
-        tk.Button(btn_frame, text="Add New", command=add_snippet).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Delete Selected", command=delete_snippet).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
-
-    def _snippet_edit_dialog(self, parent, callback=None):
-        """Show a dialog to add a new snippet."""
-        tk = self.tk
-        dlg = tk.Toplevel(parent)
-        dlg.title("Add Snippet")
-        dlg.geometry("450x400")
-        dlg.transient(parent)
-        dlg.grab_set()
-
-        fields = {}
-        for label_text, key in [("Key (unique ID):", "key"), ("Label:", "label"),
-                                ("Prefix (trigger):", "prefix"), ("Description:", "description")]:
-            tk.Label(dlg, text=label_text).pack(padx=10, pady=(5, 0), anchor="w")
-            var = tk.StringVar()
-            tk.Entry(dlg, textvariable=var).pack(fill=tk.X, padx=10)
-            fields[key] = var
-
-        tk.Label(dlg, text="Body (code):").pack(padx=10, pady=(5, 0), anchor="w")
-        body_text = tk.Text(dlg, height=8, font=("Courier", 10))
-        body_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 5))
-
-        def save():
-            key = fields["key"].get().strip()
-            label = fields["label"].get().strip()
-            prefix = fields["prefix"].get().strip()
-            desc = fields["description"].get().strip()
-            body = body_text.get("1.0", tk.END).rstrip("\n")
-            if not key or not body:
-                self.messagebox.showwarning("Missing Fields", "Key and body are required.", parent=dlg)
-                return
-            self._snippet_manager.add(key, label or key, prefix or key, body, desc)
-            self._output(f"✂️  Snippet saved: {label or key}\n", "out_ok")
-            dlg.destroy()
-            if callback:
-                callback()
-
-        tk.Button(dlg, text="Save", command=save).pack(side=tk.LEFT, padx=10, pady=10)
-        tk.Button(dlg, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT, padx=10, pady=10)
-        dlg.bind("<Escape>", lambda e: dlg.destroy())
-
-    # ==================================================================
-    #  Undo/Redo History Viewer
-    # ==================================================================
-
-    def _show_undo_history(self):
-        """Show a dialog listing undo history entries."""
-        tk = self.tk
-        win = tk.Toplevel(self.root)
-        win.title("Undo History")
-        win.geometry("500x400")
-        win.transient(self.root)
-
-        history = self._undo_history.get_history_list()
-
-        list_frame = tk.Frame(win)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        scrollbar = tk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Courier", 10))
-        listbox.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=listbox.yview)
-
-        if not history:
-            listbox.insert(tk.END, "(no history)")
-        else:
-            import datetime  # noqa: C0415
-            for entry in history:
-                ts = datetime.datetime.fromtimestamp(entry["timestamp"]).strftime("%H:%M:%S")
-                marker = " ◀" if entry["current"] else ""
-                listbox.insert(
-                    tk.END,
-                    f"#{entry['index']:3d}  {ts}  {entry['description']:12s}  "
-                    f"({entry['length']} chars){marker}"
-                )
-            # Scroll to current entry
-            for entry in history:
-                if entry["current"]:
-                    listbox.see(entry["index"])
-                    listbox.selection_set(entry["index"])
-
-        def jump_to():
-            sel = listbox.curselection()
-            if not sel:
-                return
-            content = self._undo_history.jump_to(sel[0])
-            if content is not None:
-                self.editor_text.delete("1.0", self.tk.END)
-                self.editor_text.insert("1.0", content.rstrip("\n"))
-                self._mark_dirty()
-                self._output(f"↩️  Restored to history #{sel[0]}\n", "out_ok")
-            win.destroy()
-
-        btn_frame = tk.Frame(win)
-        btn_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        tk.Button(btn_frame, text="Restore Selected", command=jump_to).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Clear History", command=lambda: (
-            self._undo_history.clear(), win.destroy(),
-            self._output("🗑  Undo history cleared.\n", "out_ok")
-        )).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Close", command=win.destroy).pack(side=tk.RIGHT, padx=5)
-        listbox.bind("<Double-Button-1>", lambda e: jump_to())
-
-    # ==================================================================
-    #  Import Graph Visualization
-    # ==================================================================
-
-    def _show_import_graph(self):
-        """Parse IMPORT statements from editor code and display dependency graph."""
-        tk = self.tk
-        source = self.editor_text.get("1.0", self.tk.END)
-
-        imports = self._parse_imports(source)
-
-        win = tk.Toplevel(self.root)
-        win.title("Import Dependency Graph")
-        win.geometry("600x400")
-        win.transient(self.root)
-
-        tw = self.scrolledtext.ScrolledText(win, wrap=tk.NONE, font=("Courier", 10))
-        tw.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        if not imports:
-            tw.insert(tk.END, "No IMPORT statements found in the current editor text.\n\n"
-                      "Add IMPORT \"filename.tc\" to your code to use this feature.")
-        else:
-            # If we have a current file, build full graph
-            if self.current_file_path and os.path.isfile(self.current_file_path):
-                graph = self._build_import_graph(self.current_file_path)
-                tw.insert(tk.END, self._format_import_graph(graph))
-            else:
-                # Just show the direct imports
-                tw.insert(tk.END, "═══ IMPORTS (current file) ═══\n\n")
-                for imp in imports:
-                    tw.insert(tk.END, f"  └── {imp}\n")
-                tw.insert(tk.END, f"\n{len(imports)} import(s) found.\n"
-                          "Save your file to enable full dependency graph traversal.")
-
-        tw.config(state=tk.DISABLED)
-        tk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 10))
-
-    # ==================================================================
     #  Main loop
     # ==================================================================
 
     def run(self):
         """Start the Tkinter main event loop."""
-        # Kick off the recurring output-queue drain before entering the loop.
         self.root.after(16, self._drain_output_queue)
         self.root.mainloop()
 

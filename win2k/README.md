@@ -1,24 +1,25 @@
-# Time Warp II -- Retro Edition
+# Time Warp II -- Retro Edition  (v2.0.0-win2k)
 
 **A TempleCode IDE for Windows 2000 and other retro systems.**
 
-> *Experimental side-project — a novelty for genuine old-school use.*
+> *Fully-featured TempleCode IDE back-ported to Python 2.7.*
 
 ---
 
 ## What Is This?
 
-Time Warp II -- Retro Edition is a self-contained, stripped-down build of the
+Time Warp II -- Retro Edition is a self-contained build of the
 Time Warp II TempleCode IDE, back-ported to **Python 2.7** so it can run on
 operating systems as old as **Windows 2000**.
 
 TempleCode is a multi-heritage programming language that blends:
 
 - **BASIC** — line numbers, PRINT, FOR/NEXT, IF/THEN, INPUT …
-- **PILOT** — T: (type), A: (accept), M: (match), Y:/N: (conditional) …
+- **PILOT** — T: (type), A: (accept), M: (match), G: (graphics), S: (string) …
 - **Logo** — FORWARD, RIGHT, PENUP, SETCOLOR, REPEAT […], TO/END …
+- **Modern** — STRUCT, LAMBDA, File I/O, REGEX, Prolog predicates …
 
-All three heritages can be mixed freely in a single `.tc` file.
+All four heritages can be mixed freely in a single `.tc` file.
 
 ---
 
@@ -77,6 +78,12 @@ This will verify Python and Tkinter are available.
 | **Ctrl+N** | New file |
 | **Ctrl+O** | Open file |
 | **Ctrl+S** | Save file |
+| **Ctrl+Z** | Undo |
+| **Ctrl+Y** | Redo |
+| **Ctrl+A** | Select all |
+| **Ctrl+F** | Find |
+| **Ctrl+H** | Find and Replace |
+| **Ctrl+G** | Go to line |
 | **Enter** (in input bar) | Submit input |
 
 ---
@@ -90,20 +97,35 @@ PRINT expression ; expression ...
 LET variable = expression
 INPUT "prompt"; variable
 IF condition THEN statement [ELSE statement]
-IF condition THEN / ELSE / END IF       (multi-line)
+IF condition THEN / ELSE / ELSEIF / END IF  (multi-line)
 FOR var = start TO end [STEP s] / NEXT var
 WHILE condition / WEND
 DO [WHILE|UNTIL cond] / LOOP [WHILE|UNTIL cond]
 GOTO line_number_or_label
 GOSUB line_number_or_label / RETURN
+ON expr GOTO label1, label2, ...
+ON expr GOSUB label1, label2, ...
 DIM array(size)
 DATA value, value, ... / READ var / RESTORE
 RANDOMIZE [TIMER]
 SELECT CASE expression / CASE value / CASE ELSE / END SELECT
 SWAP var1, var2
-INCR var [, amount]  /  DECR var [, amount]
+INC var [, amount]  /  DEC var [, amount]
 DELAY milliseconds  /  SLEEP seconds
+PAUSE milliseconds
+COLOR foreground [, background]
+TAB(n)  /  SPC(n)
+WRITE expression             (no newline)
+WRITELN expression           (with newline)
+READLN variable              (read a line)
+LOAD "filename"              (load and run a file)
+SAVE "filename"              (save program to file)
+CHAIN "filename"             (chain to another program)
+PLAYNOTE freq, duration      (play a sound)
+BEEP
 CLS
+HELP [keyword]
+INKEY                        (get key from buffer)
 REM comment
 END
 ```
@@ -116,6 +138,9 @@ END
 | `SIN(x)`, `COS(x)`, `TAN(x)` | `MID$(s,start,len)`, `INSTR(s,sub)` |
 | `LOG(x)`, `EXP(x)`, `RND` | `UCASE$(s)`, `LCASE$(s)`, `TRIM$(s)` |
 | `ROUND(x,n)`, `SGN(x)`, `PI` | `CHR$(n)`, `ASC(s)`, `STR$(n)`, `VAL(s)` |
+| `POWER(x,n)`, `FLOOR(x)`, `FIX(x)` | `SPLIT(s,d)`, `JOIN(l,d)` |
+| `RANDOM(n)`, `RANDINT(a,b)` | `CONTAINS(s,sub)`, `STARTSWITH(s,p)` |
+| `TONUM(s)`, `TOSTR(n)` | `ENDSWITH(s,suf)`, `ISNUMBER(x)` |
 
 ### PILOT Commands
 
@@ -129,6 +154,10 @@ N:command      Execute only if last match failed.
 J:*label       Jump to a *label.
 C:statement    Compute — execute a BASIC statement.
 P:milliseconds Pause.
+G:command      Graphics — execute Logo turtle commands.
+S:command      String operations (UPPER/LOWER/LENGTH/etc.).
+D:name=SIZE    Dimension — create array.
+X:filename     Execute another PILOT program.
 E:             End program.
 R:text         Remark (comment).
 L:text         Label (print, same as T:).
@@ -140,17 +169,24 @@ L:text         Label (print, same as T:).
 FORWARD n / FD n         BACK n / BK n
 LEFT n / LT n            RIGHT n / RT n
 PENUP / PU               PENDOWN / PD
-HOME                     CLEARSCREEN / CS
+HOME                     CLEAN  /  CLEARSCREEN / CS
 SETCOLOR color           SETPENSIZE n
 SETXY x y                SETHEADING n / SETH n
-CIRCLE radius            ARC angle radius
+CIRCLE radius            CIRCLEFILL radius
+ARC angle radius         FILL / FILLED color [...]
 DOT [size]               LABEL text
 SQUARE size              TRIANGLE size
 POLYGON sides size       STAR points size
-RECT width height
+RECT width height        RECTFILL width height
+PSET x y color           PRESET x y
+POINT(x, y)              TOWARDS x y
+SCREEN width height      SETBACKGROUND color / SETBG
+SETFILLCOLOR color / SETFC
+MAKE "var value
 REPEAT n [commands]      (nestable)
 TO name :param ... / END (define procedures)
 HIDETURTLE / HT          SHOWTURTLE / ST
+STAMP                    WRAP / WINDOW / FENCE
 ```
 
 ### Modern Extensions
@@ -158,12 +194,18 @@ HIDETURTLE / HT          SHOWTURTLE / ST
 ```
 SUB name(params) / END SUB
 FUNCTION name(params) / END FUNCTION
+LAMBDA name(params) = expression         (single-line)
+LAMBDA name(params) ... END LAMBDA       (multi-line)
+STRUCT name / FIELD name / METHOD name / END STRUCT
+NEW instance = StructName
 CALL name(args)
 RETURN [value]
 CONST name = value
+VAR name = value
 FOREACH var IN list_expr
 LIST var = [items]      PUSH var, value
-POP var                 SORT var
+POP var                 SHIFT var       UNSHIFT var, value
+SORT var                REVERSE var     SPLICE var, pos, count
 DICT var = {key:val}    SET var, key, value
 GET var, key            DELETE var, key
 TRY / CATCH var / END TRY
@@ -178,6 +220,51 @@ JOIN result = list, delimiter
 JSON STRINGIFY var, expr
 JSON PARSE var, string
 REGEX MATCH var, pattern, string
+REGEX REPLACE var, pattern, replace, string
+REGEX FIND var, pattern, string
+REGEX SPLIT var, pattern, string
+```
+
+### File I/O
+
+```
+OPEN handle, "filename", "mode"     (mode: r, w, a)
+CLOSE handle
+READLINE var, handle
+WRITELINE handle, text
+READFILE var, "filename"
+WRITEFILE "filename", text
+APPENDFILE "filename", text
+FILEEXISTS("filename")
+COPYFILE "source", "dest"
+DELETEFILE "filename"
+```
+
+### Prolog-Style Predicates
+
+```
+ASSERTA fact(args)        (add fact at beginning)
+ASSERTZ fact(args)        (add fact at end)
+RETRACT fact(args)        (remove a fact)
+QUERY fact(args)          (query facts)
+FACTS                     (list all facts)
+```
+
+### Advanced Expressions
+
+```
+INKEY$ / INKEY            Timer: TIMER
+Date/Time: DATE$, TIME$, NOW
+Constants: PI, TAU, INF, TRUE, FALSE
+List ops: LENGTH, INDEXOF, SLICE, CONTAINS
+String ops: STARTSWITH, ENDSWITH, SPLIT, JOIN
+Type checks: ISNUMBER, ISSTRING, TYPE
+Conversion: TONUM, TOSTR
+Math: POWER, FLOOR, TRUNC, FIX, ROUND
+Dict ops: KEYS, VALUES, HASKEY
+RANGE(n), RANGE(a,b), RANGE(a,b,step)
+EVAL "expression"
+PROGRAMINFO
 ```
 
 ---
@@ -199,16 +286,31 @@ Open them from **Examples** in the menu bar.
 
 ---
 
+## IDE Features
+
+- **Syntax highlighting** — Keywords, strings, comments, numbers, PILOT labels,
+  and function names are colour-coded in the editor.
+- **Line numbers** — Gutter showing line numbers alongside the code editor.
+- **Find & Replace** — Ctrl+F to find, Ctrl+H to find and replace.
+- **Go to Line** — Ctrl+G to jump to a specific line number.
+- **INKEY$ support** — Keystrokes are buffered when a program is running for
+  real-time keyboard input (games, interactive programs).
+- **Extended canvas** — Filled circles/rectangles, pixel drawing, background
+  colour, canvas resizing.
+- **"Did you mean?"** — Misspelled commands show suggestions.
+- **Status bar** — Shows cursor position (line/column) and run state.
+
+---
+
 ## Known Limitations
 
-- No syntax highlighting in the editor (plain text only).
-- The turtle canvas does not resize dynamically.
+- No step-through debugger (single-step mode is not available).
+- No multi-tab editing (one file open at a time).
 - `SLEEP`/`DELAY` blocks the interpreter thread; the GUI stays responsive
   but no other TempleCode commands run until the delay finishes.
-- File I/O commands (`OPEN`, `CLOSE`, `WRITE#`, `READ#`) are not
-  implemented in this edition.
-- No debugger or step-through mode.
+- PLAYNOTE/SOUND outputs the system bell only (no frequency control on Win2K).
 - Performance may be slower than the modern Python 3 edition.
+- Canvas does not support sprite or image loading.
 
 ---
 

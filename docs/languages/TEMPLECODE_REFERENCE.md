@@ -812,10 +812,21 @@ END TRY
 ## Functional Programming
 
 ### LAMBDA
-Define inline functions:
+Define inline functions (single-line):
 ```basic
 LAMBDA Double(x) = x * 2
 LAMBDA IsEven(x) = x - INT(x / 2) * 2 = 0
+```
+
+Multi-line LAMBDA blocks (for complex logic):
+```basic
+LAMBDA Factorial(n)
+  IF n <= 1 THEN RETURN 1
+  LET result = n * Factorial(n - 1)
+  RETURN result
+END LAMBDA
+
+PRINT Factorial(5)    ' prints 120
 ```
 
 ### MAP
@@ -915,7 +926,7 @@ REGEX SPLIT "," IN csv INTO parts
 ## Structs & Enums
 
 ### STRUCT
-Define a record type with named fields:
+Define a record type with named fields (single-line):
 ```basic
 STRUCT Point = X, Y
 NEW Point AS p1
@@ -923,6 +934,30 @@ SET p1.X = 10
 SET p1.Y = 20
 GET p1.X INTO px
 PRINT "x="; px
+```
+
+Multi-line STRUCT with FIELD and METHOD:
+```basic
+STRUCT Dog
+  FIELD Name
+  FIELD Breed
+  FIELD Age
+
+  METHOD Speak()
+    PRINT Name; " says Woof!"
+  END METHOD
+
+  METHOD Summary()
+    PRINT Name; " ("; Breed; "), age "; Age
+  END METHOD
+END STRUCT
+
+NEW Dog AS rex
+SET rex.Name = "Rex"
+SET rex.Breed = "Labrador"
+SET rex.Age = 5
+CALL rex.Speak()       ' Rex says Woof!
+CALL rex.Summary()     ' Rex (Labrador), age 5
 ```
 
 ### ENUM
