@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timewarp-ii"
-version = "2.0.0"
+version = "2.2.0"
 description = "Time Warp II — a single-language educational IDE for the TempleCode language (BASIC + PILOT + Logo fusion) with turtle graphics"
 readme = "README.md"
 requires-python = ">=3.9"
