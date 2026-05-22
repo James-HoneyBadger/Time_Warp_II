@@ -165,6 +165,52 @@ class Profiler:
         report.append("─" * 78)
         return "\n".join(report)
 
+    def format_sub_report(self, top_n: int = 20) -> str:
+        """Return a SUB/function-level aggregated profiler report.
+
+        Groups consecutive lines under each SUB header and sums their time.
+        """
+        if not self._line_stats:
+            return "No profiling data collected."
+
+        # Group lines by SUB: track which SUB each line belongs to
+        sub_stats: dict[str, dict] = {}
+        current_sub = "<main>"
+        # Build ordered mapping line_num → sub name using source text
+        import re as _re
+        lines_sorted = sorted(self._line_stats.items())
+        for line_num, stats in lines_sorted:
+            src = stats.get("source", "")
+            sub_match = _re.match(r'^\s*SUB\s+(\w+)', src, _re.IGNORECASE)
+            end_match = _re.match(r'^\s*END\s+SUB', src, _re.IGNORECASE)
+            if sub_match:
+                current_sub = sub_match.group(1).upper()
+            entry = sub_stats.setdefault(current_sub, {"count": 0, "total_time": 0.0, "lines": 0})
+            entry["count"] += stats["count"]
+            entry["total_time"] += stats["total_time"]
+            entry["lines"] += 1
+            if end_match:
+                current_sub = "<main>"
+
+        total_time = sum(s["total_time"] for s in sub_stats.values())
+        by_time = sorted(sub_stats.items(), key=lambda kv: kv[1]["total_time"], reverse=True)
+
+        report = ["═══ PROFILER SUB REPORT ═══"]
+        report.append(f"Total time: {total_time:.4f}s")
+        report.append("")
+        report.append(f"{'SUB':<20}  {'Hits':>8}  {'Total(ms)':>10}  {'Avg(ms)':>9}  {'%':>5}  Lines")
+        report.append("─" * 72)
+        for sub_name, stats in by_time[:top_n]:
+            count = stats["count"]
+            total_ms = stats["total_time"] * 1000
+            avg_ms = total_ms / count if count else 0
+            pct = (stats["total_time"] / total_time * 100) if total_time else 0
+            report.append(
+                f"{sub_name:<20}  {count:>8}  {total_ms:>10.2f}  {avg_ms:>9.3f}  {pct:>5.1f}  {stats['lines']}"
+            )
+        report.append("─" * 72)
+        return "\n".join(report)
+
 
 # ===================================================================
 #  3. Code Formatter / Auto-indenter
@@ -330,10 +376,17 @@ class SnippetManager:
             self._user_snippets = {}
 
     def _save(self) -> None:
-        """Persist user snippets to disk."""
+        """Persist user snippets to disk using an atomic write (temp → rename)."""
+        import tempfile, os
         try:
-            with open(SNIPPETS_FILE, "w", encoding="utf-8") as f:
-                json.dump(self._user_snippets, f, indent=2)
+            parent = SNIPPETS_FILE.parent
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=parent,
+                suffix=".tmp", delete=False
+            ) as tmp:
+                json.dump(self._user_snippets, tmp, indent=2)
+                tmp_path = tmp.name
+            os.replace(tmp_path, SNIPPETS_FILE)
         except Exception:
             pass
 

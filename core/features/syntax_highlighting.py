@@ -185,7 +185,7 @@ class SyntaxHighlightingText(tk.Frame):
 
         # Bind events
         self.text.bind('<KeyRelease>', self._on_key_release)
-        self.text.bind('<Button-1>', self._update_line_numbers)
+        self.text.bind('<Button-1>', self._on_cursor_move)
         self.text.bind('<FocusIn>', self._update_line_numbers)
         self.text.bind('<Configure>', self._update_line_numbers)
 
@@ -238,6 +238,10 @@ class SyntaxHighlightingText(tk.Frame):
             self.text.tag_configure(tag_name, **config)
             self._highlight_tags[tag_name] = config
 
+        # Bracket matching tags
+        self.text.tag_configure("bracket_match",    background="#2d6a2d", foreground="#ffffff")
+        self.text.tag_configure("bracket_mismatch", background="#6a1a1a", foreground="#ffffff")
+
     def _get_theme_colors(self) -> Dict[str, str]:
         """Get syntax highlighting colors for the current theme."""
         theme_colors = {
@@ -289,10 +293,78 @@ class SyntaxHighlightingText(tk.Frame):
         self._update_line_numbers()
 
     def _on_key_release(self, event=None):
-        """Handle key release events for syntax highlighting."""
+        """Handle key release events for syntax highlighting and bracket matching."""
         if not self._highlight_scheduled:
             self._highlight_scheduled = True
             self.after(100, self._delayed_highlight)  # Debounce highlighting
+        self._match_brackets()
+
+    def _on_cursor_move(self, event=None):
+        """Handle mouse click — update line numbers and bracket highlighting."""
+        self._update_line_numbers()
+        self.text.after(1, self._match_brackets)  # after click, cursor has moved
+
+    # --- Bracket matching ---
+    _BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}", ")": "(", "]": "[", "}": "{"}
+    _OPENERS = set("([{")
+    _CLOSERS = set(")]}")
+
+    def _match_brackets(self) -> None:
+        """Highlight the bracket under the cursor and its matching partner."""
+        self.text.tag_remove("bracket_match", "1.0", tk.END)
+        self.text.tag_remove("bracket_mismatch", "1.0", tk.END)
+
+        cursor = self.text.index(tk.INSERT)
+        # Check character at cursor, then one before
+        for pos in (cursor, f"{cursor} - 1 chars"):
+            try:
+                ch = self.text.get(pos)
+            except Exception:
+                continue
+            if ch not in self._BRACKET_PAIRS:
+                continue
+            partner = self._find_bracket_partner(pos, ch)
+            tag = "bracket_match" if partner else "bracket_mismatch"
+            self.text.tag_add(tag, pos, f"{pos} + 1 chars")
+            if partner:
+                self.text.tag_add(tag, partner, f"{partner} + 1 chars")
+            return  # only highlight the first bracket found
+
+    def _find_bracket_partner(self, pos: str, ch: str) -> str | None:
+        """Return the tkinter index of the matching bracket, or None."""
+        partner_ch = self._BRACKET_PAIRS[ch]
+        depth = 1
+        if ch in self._OPENERS:
+            idx = self.text.index(f"{pos} + 1 chars")
+            while True:
+                c = self.text.get(idx)
+                if not c:
+                    break
+                if c == ch:
+                    depth += 1
+                elif c == partner_ch:
+                    depth -= 1
+                    if depth == 0:
+                        return idx
+                idx = self.text.index(f"{idx} + 1 chars")
+                if self.text.compare(idx, ">=", tk.END):
+                    break
+        else:
+            idx = self.text.index(f"{pos} - 1 chars")
+            while True:
+                if self.text.compare(idx, "<", "1.0"):
+                    break
+                c = self.text.get(idx)
+                if c == ch:
+                    depth += 1
+                elif c == partner_ch:
+                    depth -= 1
+                    if depth == 0:
+                        return idx
+                if self.text.compare(idx, "<=", "1.0"):
+                    break
+                idx = self.text.index(f"{idx} - 1 chars")
+        return None
 
     def _delayed_highlight(self):
         """Delayed syntax highlighting to improve performance."""
@@ -411,10 +483,16 @@ class SyntaxHighlightingText(tk.Frame):
 
         self.line_numbers.config(bg=bg_color)
 
-        # Draw line numbers
+        # Draw line numbers using the actual font metrics so they stay in
+        # sync when the user changes font size.
         y = 2
-        line_height = 16  # Approximate line height
-        font = ("Courier", 10)
+        font = (self.text.cget("font") if self.text.cget("font") else ("Courier", 10))
+        try:
+            import tkinter.font as tkfont
+            fnt = tkfont.Font(font=font)
+            line_height = fnt.metrics("linespace")
+        except Exception:
+            line_height = 16
 
         for line_num in range(first_visible_line, last_visible_line + 1):
             if line_num > 0:  # Skip line 0
@@ -595,20 +673,15 @@ class SyntaxHighlightingText(tk.Frame):
         self.text.tag_remove('search_highlight', '1.0', tk.END)
 
     def _char_to_index(self, char_pos: int) -> str:
-        """Convert character position to tkinter text index."""
-        text_content = self.text.get('1.0', tk.END)
-        lines = text_content.split('\n')
+        """Convert flat character position to tkinter text index.
 
-        current_char = 0
-        for line_num, line in enumerate(lines, 1):
-            line_len = len(line) + 1  # +1 for newline
-            if current_char + line_len > char_pos:
-                col = char_pos - current_char
-                return f"{line_num}.{col}"
-            current_char += line_len
-
-        # If we get here, position is at or beyond end
-        return f"{len(lines)}.{len(lines[-1])}"
+        Uses tkinter's built-in character arithmetic so that multi-byte
+        Unicode characters are counted correctly.
+        """
+        try:
+            return self.text.index(f"1.0 + {char_pos} chars")
+        except Exception:
+            return "1.0"
 
     # Delegate text widget methods
     def __getattr__(self, name):
@@ -678,10 +751,15 @@ class LineNumberedText(tk.Frame):
 
         self.line_numbers.config(bg=bg_color)
 
-        # Draw line numbers
+        # Draw line numbers using actual font metrics.
         y = 2
-        line_height = 16
-        font = ("Courier", 10)
+        font = (self.text.cget("font") if self.text.cget("font") else ("Courier", 10))
+        try:
+            import tkinter.font as tkfont
+            fnt = tkfont.Font(font=font)
+            line_height = fnt.metrics("linespace")
+        except Exception:
+            line_height = 16
 
         for line_num in range(first_visible_line, last_visible_line + 1):
             if line_num > 0:

@@ -1,0 +1,87 @@
+REM TempleCode Morse Code Encoder
+REM Converts plain text into Morse code dots and dashes
+
+REM Morse code lookup via DATA
+REM Format: letter, code (one per line)
+DATA "A",".-","B","-...","C","-.-.","D","-..","E","."
+DATA "F","..-.","G","--.","H","....","I","..","J",".---"
+DATA "K","-.-","L",".-..","M","--","N","-.","O","---"
+DATA "P",".--.","Q","--.-","R",".-.","S","...","T","-"
+DATA "U","..-","V","...-","W",".--","X","-..-","Y","-.--"
+DATA "Z","--..","0","-----","1",".----","2","..---","3","...--"
+DATA "4","....-","5",".....","6","-....","7","--...","8","---.."
+DATA "9","----.",".",   ".-.-.-",",","--..--","?","..--..","!","-.-.--"
+
+REM Load codes into arrays
+DIM M_LETTER(46)
+DIM M_CODE(46)
+LET MORSE_COUNT = 46
+
+FOR I = 1 TO MORSE_COUNT
+    READ M_LETTER(I)
+    READ M_CODE(I)
+NEXT I
+
+PRINT "================================"
+PRINT "    Morse Code Encoder"
+PRINT "================================"
+PRINT ""
+PRINT "Type a message and see it in Morse."
+PRINT "Dots (.) and dashes (-), words"
+PRINT "separated by  /  slashes."
+PRINT ""
+
+*encode_loop
+
+PRINT "Enter text to encode (or QUIT):"
+INPUT TEXT$
+LET TEXT$ = UCASE$(TRIM$(TEXT$))
+IF TEXT$ = "QUIT" OR TEXT$ = "Q" THEN GOTO done
+
+LET TLEN = LEN(TEXT$)
+LET RESULT_MORSE = ""
+LET RESULT_DOTS = ""
+
+FOR I = 1 TO TLEN
+    LET CH = MID$(TEXT$, I, 1)
+
+    IF CH = " " THEN
+        LET RESULT_MORSE = RESULT_MORSE + "/ "
+        GOTO next_char
+    END IF
+
+    REM Find Morse code for this character
+    LET FOUND_CODE = "?"
+    FOR J = 1 TO MORSE_COUNT
+        IF M_LETTER(J) = CH THEN
+            LET FOUND_CODE = M_CODE(J)
+        END IF
+    NEXT J
+
+    LET RESULT_MORSE = RESULT_MORSE + FOUND_CODE + " "
+
+    *next_char
+NEXT I
+
+PRINT ""
+PRINT "Original : "; TEXT$
+PRINT "Morse    : "; RESULT_MORSE
+PRINT ""
+
+REM Count dots and dashes
+LET DOT_COUNT = 0
+LET DASH_COUNT = 0
+FOR I = 1 TO LEN(RESULT_MORSE)
+    LET C = MID$(RESULT_MORSE, I, 1)
+    IF C = "." THEN LET DOT_COUNT = DOT_COUNT + 1
+    IF C = "-" THEN LET DASH_COUNT = DASH_COUNT + 1
+NEXT I
+PRINT "  Dots:   "; DOT_COUNT
+PRINT "  Dashes: "; DASH_COUNT
+PRINT ""
+
+GOTO encode_loop
+
+*done
+PRINT "73!  (That means 'Best regards' in ham radio)"
+END

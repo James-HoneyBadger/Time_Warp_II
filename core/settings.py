@@ -81,8 +81,12 @@ def _validate(data: dict[str, Any]) -> dict[str, Any]:
         rf = []
     out["recent_files"] = [f for f in rf if isinstance(f, str)][:MAX_RECENT]
 
-    # Geometry — must be a string (e.g. "1200x800+100+50")
-    if not isinstance(out.get("geometry", ""), str):
+    # Geometry — must be a string matching the WxH+X+Y pattern
+    import re as _re
+    geom = out.get("geometry", "")
+    if not isinstance(geom, str) or not _re.fullmatch(
+        r'\d+x\d+[+-]\d+[+-]\d+', geom
+    ):
         out["geometry"] = ""
 
     return out

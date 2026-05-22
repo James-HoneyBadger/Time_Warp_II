@@ -72,6 +72,7 @@ class ReplPanel:
         self.entry.bind("<Return>", lambda e: self._submit())
         self.entry.bind("<Up>", lambda e: self._history_prev())
         self.entry.bind("<Down>", lambda e: self._history_next())
+        self.entry.bind("<Tab>", lambda e: self._tab_complete() or "break")
 
         # Dedicated interpreter for the REPL session
         self._fake_widget = _ReplOutputCapture()
@@ -121,6 +122,11 @@ class ReplPanel:
             self.output.see(tk.END)
             return
 
+        if upper in ("HELP", "?"):
+            self._show_help()
+            self.output.see(tk.END)
+            return
+
         # Execute in the interpreter
         self._fake_widget.clear()
         self._interp.running = True
@@ -167,6 +173,49 @@ class ReplPanel:
         tk = self.app.tk
         self.entry.delete(0, tk.END)
         self.entry.insert(0, text)
+
+    def _tab_complete(self) -> None:
+        """Complete the current word at the cursor using TempleCode keywords and variable names."""
+        from core.config import KEYWORDS
+        tk = self.app.tk
+        text = self.entry.get()
+        cursor = self.entry.index(tk.INSERT)
+        word_start = cursor
+        while word_start > 0 and text[word_start - 1].isalpha():
+            word_start -= 1
+        prefix = text[word_start:cursor].upper()
+        if not prefix:
+            return
+        # Include current variable names in completions
+        var_names = [v.upper() for v in self._interp.variables if not v.startswith("__")]
+        candidates = sorted(set(KEYWORDS) | set(var_names))
+        matches = [kw for kw in candidates if kw.startswith(prefix)]
+        if len(matches) == 1:
+            completion = matches[0][len(prefix):]
+            self.entry.insert(cursor, completion)
+        elif len(matches) > 1:
+            self.output.insert(tk.END, "  ".join(matches) + "\n", "result")
+            self.output.see(tk.END)
+
+    def _show_help(self) -> None:
+        """Show available meta-commands and a keyword summary."""
+        tk = self.app.tk
+        help_text = (
+            "━━━ REPL Meta-Commands ━━━\n"
+            "  HELP / ?        Show this help\n"
+            "  VARS             List all current variables\n"
+            "  CLEAR / RESET    Reset interpreter session\n"
+            "  QUIT / EXIT      (Close the IDE to quit)\n\n"
+            "━━━ Quick Reference ━━━\n"
+            "  PRINT expr       Output a value\n"
+            "  LET x = expr     Set variable x\n"
+            "  FOR x=1 TO 10    Loop (needs NEXT x on next line)\n"
+            "  IF cond THEN     Conditional\n"
+            "  FD n / RT n      Turtle: forward / right turn\n"
+            "  PENUP / PENDOWN  Turtle pen control\n"
+            "  Press Tab to autocomplete keywords and variable names.\n"
+        )
+        self.output.insert(tk.END, help_text, "result")
 
     # ------------------------------------------------------------------
     #  Helpers

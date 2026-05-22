@@ -799,6 +799,17 @@ class TempleCodeInterpreter:
         safe_dict = {"__builtins__": {}}
         safe_dict.update(allowed)
 
+        # Reject expressions that contain known dangerous patterns that could
+        # bypass the restricted eval sandbox (e.g. __class__, __import__).
+        _DANGER = re.compile(
+            r'(__[a-z_]+__|import\s|exec\s*\(|open\s*\(|subprocess|os\.|sys\.|'
+            r'builtins|globals\s*\(|locals\s*\(|vars\s*\(|getattr|setattr|delattr)',
+            re.IGNORECASE,
+        )
+        if _DANGER.search(expr):
+            self.log_error("Expression contains forbidden pattern", None)
+            return 0
+
         # Mathematical constants — substitute before eval so PI/E/TAU/INF
         # in arithmetic expressions like "PI / 4" or "E ** 2" work correctly.
         expr = re.sub(r'\bPI\b', str(math.pi), expr)

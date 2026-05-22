@@ -1,0 +1,52 @@
+REM TempleCode Fractal Tree
+REM Draws a branching tree using recursive Logo procedures
+
+CLEARSCREEN
+HIDETURTLE
+SETBACKGROUND black
+SETPENSIZE 1
+
+PRINT "Drawing fractal tree..."
+PRINT "(This may take a moment)"
+
+REM Start the tree from the bottom center
+PENUP
+SETXY 0 -150
+PENDOWN
+SETHEADING 0
+
+REM The tree is drawn by the BRANCH procedure
+REM BRANCH :len — draw a branch of given length then recurse
+
+TO BRANCH :len
+    IF LEN < 4 THEN
+        SETCOLOR lime
+        CIRCLE 3
+        RETURN
+    END IF
+    IF LEN > 50 THEN SETCOLOR brown
+    IF LEN > 30 AND LEN <= 50 THEN SETCOLOR sienna
+    IF LEN <= 30 THEN SETCOLOR green
+    LET TC_PS = INT(LEN / 12) + 1
+    SETPENSIZE TC_PS
+    FORWARD :len
+    RIGHT 25
+    LET TC_LEN = INT(LEN * 0.68)
+    BRANCH TC_LEN
+    LEFT 50
+    BRANCH TC_LEN
+    RIGHT 25
+    BACK :len
+END
+
+REM Draw the trunk
+SETPENSIZE 5
+SETCOLOR sienna
+FORWARD 50
+SETHEADING 0
+
+REM Draw the branches
+BRANCH 70
+
+PRINT "Fractal tree complete!"
+END

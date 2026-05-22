@@ -47,7 +47,7 @@ class _OutputProxy:
     CLEAR = object()   # sentinel: clear the widget
 
     def __init__(self) -> None:
-        self._q: _queue.Queue = _queue.Queue()
+        self._q: _queue.Queue = _queue.Queue(maxsize=10_000)
 
     def insert(self, _index, text: str) -> None:   # noqa: D102
         """Insert text into the output queue."""
@@ -141,6 +141,11 @@ class TempleCodeApp:
         self.current_font = self._settings.get("font_size", "medium")
         self.current_font_family = self._settings.get("font_family", "Courier")
         self.recent_files: list = self._settings.get("recent_files", [])
+        # O(1) dedup tracker — mirrors recent_files list order
+        from collections import OrderedDict
+        self._recent_set: OrderedDict = OrderedDict(
+            (p, None) for p in self.recent_files
+        )
         self.auto_dark: bool = self._settings.get("auto_dark", True)
         self.exec_speed: int = self._settings.get("exec_speed", 0)
         self.turtle_speed: int = self._settings.get("turtle_speed", 0)
@@ -357,7 +362,8 @@ class TempleCodeApp:
         r.bind("<Control-n>", lambda e: self.new_file())
         r.bind("<Control-o>", lambda e: self.load_file())
         r.bind("<Control-s>", lambda e: self.save_file_quick())
-        r.bind("<Control-Shift-S>", lambda e: self.save_file())
+        r.bind("<Control-Shift-S>", lambda e: self.save_all())
+        r.bind("<Control-Alt-s>", lambda e: self.save_file())
         r.bind("<Control-q>", lambda e: self.exit_app())
         r.bind("<Control-z>", lambda e: self.undo_text())
         r.bind("<Control-y>", lambda e: self.redo_text())
@@ -372,6 +378,16 @@ class TempleCodeApp:
         # Debug key bindings
         r.bind("<F9>", lambda e: self.debug_toggle_breakpoint())
         r.bind("<F10>", lambda e: self.debug_step_over())
+
+        # Tab cycling
+        r.bind("<Control-Tab>", lambda e: self._next_tab())
+        r.bind("<Control-Shift-Tab>", lambda e: self._prev_tab())
+
+        # Canvas clipboard
+        r.bind("<Control-Shift-C>", lambda e: self.graphics_panel.copy_to_clipboard())
+
+        # Variable inspector
+        r.bind("<Control-Shift-V>", lambda e: self._show_variable_inspector())
         r.bind("<F11>", lambda e: self.debug_step_over())  # step into = step over for now
         r.bind("<Shift-F5>", lambda e: self.debug_stop())
 
@@ -587,12 +603,14 @@ class TempleCodeApp:
     # ==================================================================
 
     def _add_recent(self, path):
-        """Track recent files."""
+        """Track recent files using OrderedDict for O(1) dedup."""
         path = str(Path(path).resolve())
-        if path in self.recent_files:
-            self.recent_files.remove(path)
-        self.recent_files.insert(0, path)
-        self.recent_files = self.recent_files[:MAX_RECENT]
+        self._recent_set.pop(path, None)  # remove if already present
+        self._recent_set[path] = None
+        # Keep only the most recent MAX_RECENT entries
+        while len(self._recent_set) > MAX_RECENT:
+            self._recent_set.popitem(last=False)
+        self.recent_files = list(reversed(list(self._recent_set.keys())))
         self._rebuild_recent_menu()
         self._save()
 
@@ -658,6 +676,49 @@ class TempleCodeApp:
         )
         if filename:
             self._open_path(filename)
+
+    def save_all(self):
+        """Save all open tabs that have unsaved changes."""
+        if not hasattr(self, 'tab_manager'):
+            self.save_file_quick()
+            return
+        saved, skipped = 0, 0
+        original_idx = self.tab_manager.active_index
+        for i, tab in enumerate(self.tab_manager.tabs):
+            if not tab.modified:
+                continue
+            if tab.file_path and os.path.isfile(tab.file_path):
+                try:
+                    # Switch to tab to get its current content
+                    self.tab_manager.switch_to(i)
+                    content = self.editor_text.get("1.0", self.tk.END)
+                    with open(tab.file_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    self.tab_manager.mark_saved(tab.file_path)
+                    saved += 1
+                except Exception as e:
+                    self._output(f"❌ Save failed for {tab.file_path}: {e}\n", "out_error")
+                    skipped += 1
+            else:
+                skipped += 1  # new/untitled tab — needs Save As
+        # Restore original tab
+        self.tab_manager.switch_to(original_idx)
+        if saved:
+            self._output(f"💾 Saved {saved} file(s).\n", "out_ok")
+        if skipped:
+            self._output(f"⚠ {skipped} tab(s) with unsaved changes need 'Save As'.\n", "out_warn")
+
+    def _next_tab(self) -> None:
+        """Switch to the next tab (Ctrl+Tab)."""
+        if hasattr(self, 'tab_manager') and len(self.tab_manager.tabs) > 1:
+            idx = (self.tab_manager.active_index + 1) % len(self.tab_manager.tabs)
+            self.tab_manager.switch_to(idx)
+
+    def _prev_tab(self) -> None:
+        """Switch to the previous tab (Ctrl+Shift+Tab)."""
+        if hasattr(self, 'tab_manager') and len(self.tab_manager.tabs) > 1:
+            idx = (self.tab_manager.active_index - 1) % len(self.tab_manager.tabs)
+            self.tab_manager.switch_to(idx)
 
     def save_file(self):
         """Open a Save As dialog and write the editor contents to a file."""
@@ -839,6 +900,14 @@ class TempleCodeApp:
         self._out_clear()
         self._output("🚀 Running program...\n\n", "out_ok")
         self._is_running = True
+        if hasattr(self, 'toolbar'):
+            self.toolbar.set_running_state(True)
+        self._update_run_menu_states(True)
+        # Clear any previous error squiggles from the editor
+        try:
+            self.editor_text.tag_remove("error_squiggle", "1.0", self.tk.END)
+        except Exception:
+            pass
 
         # Pass speed settings to the interpreter
         if hasattr(self.interpreter, 'exec_delay_ms'):
@@ -872,13 +941,52 @@ class TempleCodeApp:
     def _on_run_finished(self):
         """Called on the main thread when the interpreter thread completes."""
         self._is_running = False
+        if hasattr(self, 'toolbar'):
+            self.toolbar.set_running_state(False)
+        self._update_run_menu_states(False)
         if self.interpreter:
             self.interpreter.reset_input_state()
+            # Highlight any error lines in the editor (squiggle effect)
+            self._apply_error_squiggles()
         # Clean up debug controller
         if hasattr(self, '_debug_controller') and self._debug_controller:
             self._debug_controller.stop()
             self._debug_controller = None
             self._clear_debug_highlight()
+
+    def _update_run_menu_states(self, is_running: bool) -> None:
+        """Enable/disable Program menu Run and Stop items based on run state."""
+        try:
+            pm = self._program_menu
+            # index 0 = Run Program, index 1 = Stop Program
+            pm.entryconfig(0, state="disabled" if is_running else "normal")
+            pm.entryconfig(1, state="normal" if is_running else "disabled")
+        except Exception:
+            pass
+
+    def _apply_error_squiggles(self) -> None:
+        """Underline lines in the editor that the interpreter reported errors on."""
+        try:
+            editor = self.editor_text
+            # Remove any previous squiggles
+            editor.tag_remove("error_squiggle", "1.0", self.tk.END)
+            if not self.interpreter or not self.interpreter.error_history:
+                return
+            editor.tag_configure(
+                "error_squiggle",
+                underline=True,
+                foreground="#f44747",
+            )
+            seen = set()
+            for err in self.interpreter.error_history:
+                line_num = err.get("line")
+                if line_num and line_num not in seen:
+                    seen.add(line_num)
+                    start = f"{line_num}.0"
+                    end = f"{line_num}.end"
+                    editor.tag_add("error_squiggle", start, end)
+        except Exception:
+            pass
 
     # ==================================================================
     #  Step Debugger
@@ -902,8 +1010,8 @@ class TempleCodeApp:
         self._out_clear()
         self._output("🐛 Starting debug session...\n\n", "out_ok")
         self._is_running = True
-
-        # Setup interpreter
+        self.toolbar.set_running_state(True)
+        self._update_run_menu_states(True)
         if hasattr(self.interpreter, 'exec_delay_ms'):
             self.interpreter.exec_delay_ms = self.exec_speed
         if hasattr(self.interpreter, 'turtle_delay_ms'):
@@ -973,6 +1081,8 @@ class TempleCodeApp:
             self._debug_controller.stop()
             self._debug_controller = None
             self._clear_debug_highlight()
+            self.toolbar.set_running_state(False)
+            self._update_run_menu_states(False)
             if self.interpreter:
                 self.interpreter.running = False
                 self.interpreter.debug_mode = False
@@ -1031,11 +1141,93 @@ class TempleCodeApp:
             pass
 
     # ------------------------------------------------------------------
-    #  Output-queue drain — runs on the main thread every ~16 ms
+    #  Variable Inspector
     # ------------------------------------------------------------------
+
+    def _show_variable_inspector(self) -> None:
+        """Open (or raise) the live Variable Inspector window."""
+        if hasattr(self, '_var_inspector') and self._var_inspector is not None:
+            try:
+                self._var_inspector.lift()
+                return
+            except Exception:
+                self._var_inspector = None
+
+        win = self.tk.Toplevel(self.root)
+        win.title("Variable Inspector")
+        win.geometry("380x420")
+        win.resizable(True, True)
+        self._var_inspector = win
+
+        tk = self.tk
+        top = tk.Frame(win)
+        top.pack(fill=tk.X, padx=5, pady=4)
+        tk.Label(top, text="Filter:").pack(side=tk.LEFT)
+        filter_var = tk.StringVar()
+        filter_entry = tk.Entry(top, textvariable=filter_var, width=20)
+        filter_entry.pack(side=tk.LEFT, padx=4)
+
+        cols = ("Name", "Type", "Value")
+        import tkinter.ttk as _ttk
+        tree = _ttk.Treeview(win, columns=cols, show="headings", height=18)
+        for col, w in zip(cols, (100, 70, 190)):
+            tree.heading(col, text=col)
+            tree.column(col, width=w, anchor="w")
+        sb = tk.Scrollbar(win, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
+
+        status = tk.Label(win, text="", anchor="w", font=("Arial", 8), fg="#888")
+        status.pack(fill=tk.X, padx=5, pady=(0, 3))
+
+        _refresh_id = [None]
+
+        def _refresh():
+            try:
+                if not win.winfo_exists():
+                    return
+            except Exception:
+                return
+            term = filter_var.get().strip().lower()
+            variables = dict(getattr(self.interpreter, 'variables', {}) or {})
+            # Sort: numbers first, then strings, then other
+            items = sorted(variables.items(), key=lambda kv: kv[0])
+            if term:
+                items = [(k, v) for k, v in items if term in k.lower()]
+            tree.delete(*tree.get_children())
+            for name, val in items:
+                type_str = type(val).__name__
+                if isinstance(val, str):
+                    display = repr(val) if len(val) < 60 else repr(val[:57]) + "..."
+                else:
+                    display = str(val)
+                tree.insert("", tk.END, values=(name, type_str, display))
+            status.config(text=f"{len(items)} variable{'s' if len(items) != 1 else ''}")
+            _refresh_id[0] = win.after(500, _refresh)
+
+        filter_var.trace_add("write", lambda *_: None)  # re-renders on next poll
+        _refresh()
+
+        def _on_close():
+            if _refresh_id[0]:
+                try:
+                    win.after_cancel(_refresh_id[0])
+                except Exception:
+                    pass
+            self._var_inspector = None
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _on_close)
 
     def _drain_output_queue(self):
         """Flush the thread-safe output proxy queue onto the real widget."""
+        # Guard against being called after the window has been destroyed.
+        try:
+            if not self.root.winfo_exists():
+                return
+        except Exception:
+            return
         waiting = bool(self.interpreter and self.interpreter.waiting_for_input)
         ot = self.output_text
         try:
@@ -1063,11 +1255,10 @@ class TempleCodeApp:
         elif self._key_capture_active:
             self._stop_key_capture()
 
-        self.root.after(16, self._drain_output_queue)
-
-    # ------------------------------------------------------------------
-    #  Input-wait visual feedback
-    # ------------------------------------------------------------------
+        # Adaptive delay: poll faster when output is actively arriving,
+        # back off to 100 ms when idle to reduce CPU waste.
+        delay = 16 if self._output_proxy._q.qsize() > 0 else 100
+        self.root.after(delay, self._drain_output_queue)
 
     def _start_key_capture(self):
         """Mark the input entry as active (yellow) when a program waits for input."""
@@ -1125,7 +1316,7 @@ class TempleCodeApp:
         self.editor_panel.apply_theme(theme, theme_key)
         self.output_panel.apply_theme(theme)
         self.graphics_panel.apply_theme(theme)
-        self.toolbar.apply_theme(tk, theme)
+        self.toolbar.apply_theme(theme)
         self.status_bar_panel.apply_theme(theme)
         if hasattr(self, 'tab_manager'):
             self.tab_manager.apply_theme(theme)

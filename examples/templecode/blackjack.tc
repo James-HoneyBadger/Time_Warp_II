@@ -1,0 +1,160 @@
+REM TempleCode Blackjack
+REM Classic card game — try to beat the dealer to 21!
+
+RANDOMIZE TIMER
+
+REM Card values stored as deck positions
+REM Suits: 1=Clubs 2=Diamonds 3=Hearts 4=Spades
+REM Values: 1=Ace 2-10=face value 11=Jack 12=Queen 13=King
+
+FUNCTION CardValue(card)
+    LET v = ((card - 1) MOD 13) + 1
+    IF v = 1 THEN RETURN 11    REM Ace = 11 initially
+    IF v >= 10 THEN RETURN 10  REM Face cards = 10
+    RETURN v
+END FUNCTION
+
+FUNCTION CardName(card)
+    LET v = ((card - 1) MOD 13) + 1
+    LET s = INT((card - 1) / 13) + 1
+    LET VNAME = ""
+    IF v = 1 THEN LET VNAME = "Ace"
+    IF v = 2 THEN LET VNAME = "2"
+    IF v = 3 THEN LET VNAME = "3"
+    IF v = 4 THEN LET VNAME = "4"
+    IF v = 5 THEN LET VNAME = "5"
+    IF v = 6 THEN LET VNAME = "6"
+    IF v = 7 THEN LET VNAME = "7"
+    IF v = 8 THEN LET VNAME = "8"
+    IF v = 9 THEN LET VNAME = "9"
+    IF v = 10 THEN LET VNAME = "10"
+    IF v = 11 THEN LET VNAME = "Jack"
+    IF v = 12 THEN LET VNAME = "Queen"
+    IF v = 13 THEN LET VNAME = "King"
+    LET SNAME = ""
+    IF s = 1 THEN LET SNAME = "C"
+    IF s = 2 THEN LET SNAME = "D"
+    IF s = 3 THEN LET SNAME = "H"
+    IF s = 4 THEN LET SNAME = "S"
+    RETURN VNAME + SNAME
+END FUNCTION
+
+REM Deal a random card (simple: just pick 1-52 randomly)
+FUNCTION DealCard()
+    RETURN INT(RND * 52) + 1
+END FUNCTION
+
+REM --- Main game loop ---
+LET CHIPS = 100
+
+PRINT "================================"
+PRINT "     BLACKJACK  (Beat the Dealer)"
+PRINT "================================"
+PRINT ""
+
+*new_round
+
+IF CHIPS <= 0 THEN GOTO broke
+PRINT "You have "; CHIPS; " chips."
+PRINT "Enter bet (1-"; CHIPS; "):"
+INPUT BET
+LET BET = INT(BET)
+IF BET < 1 THEN LET BET = 1
+IF BET > CHIPS THEN LET BET = CHIPS
+
+REM Deal initial cards
+LET P1 = DealCard()
+LET P2 = DealCard()
+LET D1 = DealCard()
+LET D2 = DealCard()
+
+LET PV1 = CardValue(P1)
+LET PV2 = CardValue(P2)
+LET PSCORE = PV1 + PV2
+LET DV1 = CardValue(D1)
+LET DV2 = CardValue(D2)
+LET DSCORE = DV1 + DV2
+
+PRINT ""
+PRINT "  Your hand: "; CardName(P1); ", "; CardName(P2); " = "; PSCORE
+PRINT "  Dealer:    "; CardName(D1); ", [hidden]"
+PRINT ""
+
+REM Blackjack check
+IF PSCORE = 21 THEN GOTO player_blackjack
+
+REM Player's turn
+*player_turn
+IF PSCORE > 21 THEN GOTO player_bust
+PRINT "  Hit (h) or Stand (s)?"
+INPUT CHOICE$
+LET CHOICE$ = LCASE$(TRIM$(CHOICE$))
+
+IF CHOICE$ = "h" OR CHOICE$ = "hit" THEN
+    LET NEWCARD = DealCard()
+    LET PSCORE = PSCORE + CardValue(NEWCARD)
+    PRINT "  You drew: "; CardName(NEWCARD); " → total "; PSCORE
+    GOTO player_turn
+END IF
+
+REM Dealer's turn
+PRINT ""
+PRINT "  Dealer reveals: "; CardName(D1); ", "; CardName(D2); " = "; DSCORE
+*dealer_turn
+IF DSCORE < 17 THEN
+    LET NEWCARD = DealCard()
+    LET DSCORE = DSCORE + CardValue(NEWCARD)
+    PRINT "  Dealer drew: "; CardName(NEWCARD); " → total "; DSCORE
+    GOTO dealer_turn
+END IF
+
+REM Determine result
+IF DSCORE > 21 THEN GOTO dealer_bust
+IF PSCORE > DSCORE THEN GOTO player_wins
+IF DSCORE > PSCORE THEN GOTO dealer_wins
+GOTO push
+
+*player_blackjack
+PRINT "  BLACKJACK! You win "; INT(BET * 1.5); " chips!"
+LET CHIPS = CHIPS + INT(BET * 1.5)
+GOTO next_round
+
+*player_bust
+PRINT "  BUST! You went over 21. Dealer wins."
+LET CHIPS = CHIPS - BET
+GOTO next_round
+
+*dealer_bust
+PRINT "  Dealer BUSTS! You win "; BET; " chips!"
+LET CHIPS = CHIPS + BET
+GOTO next_round
+
+*player_wins
+PRINT "  You win "; BET; " chips! ("; PSCORE; " vs "; DSCORE; ")"
+LET CHIPS = CHIPS + BET
+GOTO next_round
+
+*dealer_wins
+PRINT "  Dealer wins. ("; DSCORE; " vs "; PSCORE; ")"
+LET CHIPS = CHIPS - BET
+GOTO next_round
+
+*push
+PRINT "  PUSH — tie! Your bet is returned. ("; PSCORE; " each)"
+GOTO next_round
+
+*next_round
+PRINT ""
+PRINT "  Chips: "; CHIPS
+PRINT "  Play again? (y/n)"
+INPUT AGAIN$
+IF LCASE$(TRIM$(AGAIN$)) = "y" THEN GOTO new_round
+PRINT ""
+PRINT "  Thanks for playing! Final chips: "; CHIPS
+END
+
+*broke
+PRINT ""
+PRINT "  You're out of chips! Game over."
+PRINT "  Better luck next time!"
+END

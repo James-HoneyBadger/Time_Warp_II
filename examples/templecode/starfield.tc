@@ -1,0 +1,124 @@
+REM TempleCode Starfield
+REM 200 stars drawn with PSET, simulating a window into space
+
+RANDOMIZE TIMER
+CLEARSCREEN
+HIDETURTLE
+SETBACKGROUND black
+
+PRINT "Rendering starfield..."
+
+REM --- Draw stars (3 layers for depth) ---
+
+REM Distant stars: small, dim dots (white/grey)
+SETPENSIZE 1
+FOR I = 1 TO 80
+    LET SX = INT(RND * 400) - 200
+    LET SY = INT(RND * 300) - 150
+    PENUP
+    SETXY SX SY
+    PENDOWN
+    SETCOLOR grey
+    DOT 1
+NEXT I
+
+REM Mid-distance stars: medium brightness
+FOR I = 1 TO 70
+    LET SX = INT(RND * 380) - 190
+    LET SY = INT(RND * 280) - 140
+    PENUP
+    SETXY SX SY
+    PENDOWN
+    IF I MOD 5 = 0 THEN SETCOLOR lightblue
+    IF I MOD 5 = 1 THEN SETCOLOR lightyellow
+    IF I MOD 5 = 2 THEN SETCOLOR white
+    IF I MOD 5 = 3 THEN SETCOLOR lightcyan
+    IF I MOD 5 = 4 THEN SETCOLOR lavender
+    DOT 2
+NEXT I
+
+REM Bright nearby stars: large with a cross-hair glint
+FOR I = 1 TO 12
+    LET SX = INT(RND * 360) - 180
+    LET SY = INT(RND * 260) - 130
+    PENUP
+    SETXY SX SY
+    PENDOWN
+    SETCOLOR white
+    DOT 4
+    REM Cross glint
+    SETPENSIZE 1
+    SETCOLOR lightblue
+    PENUP
+    SETXY SX-7 SY
+    PENDOWN
+    SETXY SX+7 SY
+    PENUP
+    SETXY SX SY-7
+    PENDOWN
+    SETXY SX SY+7
+NEXT I
+
+REM --- Constellation: The Big Dipper (Ursa Major outline) ---
+REM Approximate positions for the 7 main stars
+SETPENSIZE 1
+SETCOLOR steelblue
+
+DATA -90, 40,   -60, 55,   -25, 50,    5, 65
+DATA  30, 55,    45, 25,   25, 10
+
+DIM CX(7)
+DIM CY(7)
+FOR I = 1 TO 7
+    READ CX(I)
+    READ CY(I)
+NEXT I
+
+REM Draw bright constellation stars
+FOR I = 1 TO 7
+    PENUP
+    SETXY CX(I) CY(I)
+    PENDOWN
+    SETCOLOR gold
+    DOT 5
+NEXT I
+
+REM Draw connecting lines
+SETCOLOR steelblue
+FOR I = 1 TO 6
+    PENUP
+    SETXY CX(I) CY(I)
+    PENDOWN
+    SETXY CX(I+1) CY(I+1)
+NEXT I
+
+REM --- Nebula cloud: soft glowing region ---
+SETPENSIZE 1
+FOR I = 1 TO 40
+    LET NX = INT(RND * 80) + 60
+    LET NY = INT(RND * 60) - 60
+    PENUP
+    SETXY NX NY
+    PENDOWN
+    IF I MOD 3 = 0 THEN SETCOLOR violet
+    IF I MOD 3 = 1 THEN SETCOLOR darkviolet
+    IF I MOD 3 = 2 THEN SETCOLOR mediumpurple
+    LET NS = INT(RND * 4) + 1
+    DOT NS
+NEXT I
+
+REM --- Labels ---
+PENUP
+SETXY -185 135
+PENDOWN
+SETCOLOR white
+LABEL "STARFIELD" 11
+
+PENUP
+SETXY -185 118
+PENDOWN
+SETCOLOR steelblue
+LABEL "Ursa Major visible tonight" 9
+
+PRINT "Starfield rendered — 200 stars!"
+END

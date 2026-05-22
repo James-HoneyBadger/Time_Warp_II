@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -52,13 +53,12 @@ class GraphicsPanel:
         )
         if not filename:
             return
+        ps_file = filename + ".ps"
         try:
             from PIL import Image
-            ps_file = filename + ".ps"
             self.canvas.postscript(file=ps_file, colormode="color")
             img = Image.open(ps_file)
             img.save(filename, "PNG")
-            os.remove(ps_file)
             self.app._output(f"📸 Canvas exported to {filename}\n", "out_ok")
         except ImportError:
             ps_name = filename.replace(".png", ".ps")
@@ -69,6 +69,61 @@ class GraphicsPanel:
             )
         except Exception as e:
             self.app._output(f"❌ Export failed: {e}\n", "out_error")
+        finally:
+            # Always remove the temporary PostScript file if it was created.
+            if os.path.exists(ps_file):
+                try:
+                    os.remove(ps_file)
+                except OSError:
+                    pass
+
+    def copy_to_clipboard(self) -> None:
+        """Copy the canvas contents to the system clipboard as a PNG image."""
+        ps_file = None
+        png_file = None
+        try:
+            from PIL import Image
+            fd, ps_file = tempfile.mkstemp(suffix=".ps")
+            os.close(fd)
+            fd2, png_file = tempfile.mkstemp(suffix=".png")
+            os.close(fd2)
+            self.canvas.postscript(file=ps_file, colormode="color")
+            img = Image.open(ps_file)
+            img.save(png_file, "PNG")
+            # Try xclip (X11) then xdotool, fall back to saving to temp location
+            import subprocess
+            result = subprocess.run(
+                ["xclip", "-selection", "clipboard", "-t", "image/png", "-i", png_file],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                self.app._output("📋 Canvas copied to clipboard.\n", "out_ok")
+            else:
+                # Try wl-copy (Wayland)
+                result2 = subprocess.run(
+                    ["wl-copy", "--type", "image/png"],
+                    input=open(png_file, "rb").read(),
+                    capture_output=True, timeout=5,
+                )
+                if result2.returncode == 0:
+                    self.app._output("📋 Canvas copied to clipboard.\n", "out_ok")
+                else:
+                    self.app._output(
+                        f"⚠ Clipboard copy requires xclip or wl-copy.\n"
+                        f"  PNG saved to: {png_file}\n", "out_warn")
+                    png_file = None  # don't delete — user may want it
+        except ImportError:
+            self.app._output(
+                "⚠ Canvas clipboard copy requires Pillow (pip install Pillow).\n", "out_warn")
+        except Exception as e:
+            self.app._output(f"❌ Clipboard copy failed: {e}\n", "out_error")
+        finally:
+            for f in (ps_file, png_file):
+                if f and os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
 
     def export_svg(self) -> None:
         """Export the canvas to a crude SVG file."""
@@ -87,21 +142,30 @@ class GraphicsPanel:
                 f'viewBox="0 0 {w} {h}">',
                 f'<rect width="{w}" height="{h}" fill="{self.canvas.cget("bg")}"/>',
             ]
+
+            def _color(raw: str, fallback: str = "none") -> str:
+                """Return *raw* if non-empty, else *fallback*."""
+                return raw.strip() if raw and raw.strip() else fallback
+
+            def _flip_y(y: float) -> float:
+                """Flip a tkinter Y coordinate to SVG coordinate space."""
+                return h - y
+
             for item in items:
                 itype = self.canvas.type(item)
                 coords = self.canvas.coords(item)
-                fill = self.canvas.itemcget(item, "fill") or "none"
-                outline = self.canvas.itemcget(item, "outline") or "none"
+                fill = _color(self.canvas.itemcget(item, "fill"))
+                outline = _color(self.canvas.itemcget(item, "outline"))
                 width = self.canvas.itemcget(item, "width") or "1"
                 if itype == "line" and len(coords) >= 4:
                     svg_lines.append(
-                        f'<line x1="{coords[0]}" y1="{coords[1]}" '
-                        f'x2="{coords[2]}" y2="{coords[3]}" '
+                        f'<line x1="{coords[0]}" y1="{_flip_y(coords[1])}" '
+                        f'x2="{coords[2]}" y2="{_flip_y(coords[3])}" '
                         f'stroke="{fill}" stroke-width="{width}"/>'
                     )
                 elif itype == "oval" and len(coords) >= 4:
                     cx = (coords[0] + coords[2]) / 2
-                    cy = (coords[1] + coords[3]) / 2
+                    cy = _flip_y((coords[1] + coords[3]) / 2)
                     rx = abs(coords[2] - coords[0]) / 2
                     ry = abs(coords[3] - coords[1]) / 2
                     svg_lines.append(
@@ -110,7 +174,7 @@ class GraphicsPanel:
                     )
                 elif itype == "rectangle" and len(coords) >= 4:
                     svg_lines.append(
-                        f'<rect x="{coords[0]}" y="{coords[1]}" '
+                        f'<rect x="{coords[0]}" y="{_flip_y(coords[3])}" '
                         f'width="{coords[2]-coords[0]}" height="{coords[3]-coords[1]}" '
                         f'fill="{fill}" stroke="{outline}" stroke-width="{width}"/>'
                     )

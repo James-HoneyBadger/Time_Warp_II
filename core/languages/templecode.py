@@ -34,6 +34,8 @@ import sys
 import math
 import random
 import time
+import threading
+from pathlib import Path
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -1169,14 +1171,95 @@ class TempleCodeExecutor:
 
     # --- REPEAT ---
 
+    @staticmethod
+    def _find_matching_bracket(s: str, start: int) -> int:
+        """Return the index of the `]` closing the `[` at `start`, or -1."""
+        depth = 0
+        for i in range(start, len(s)):
+            if s[i] == '[':
+                depth += 1
+            elif s[i] == ']':
+                depth -= 1
+                if depth == 0:
+                    return i
+        return -1
+
+    def _validate_file_path(self, filename: str) -> bool:
+        """Reject path traversal and access to sensitive system directories.
+
+        Relative paths must stay within CWD.  Absolute paths are allowed only
+        outside known system directories (/etc, /proc, /sys, /dev, /boot).
+        """
+        _BLOCKED = ("/etc", "/proc", "/sys", "/dev", "/boot",
+                    "/root", "/sbin", "/usr/sbin")
+        try:
+            p = Path(filename)
+            if p.is_absolute():
+                resolved = p.resolve()
+                resolved_str = str(resolved)
+                for blocked in _BLOCKED:
+                    if resolved_str.startswith(blocked + "/") or resolved_str == blocked:
+                        self.interpreter.log_output(
+                            f"File error: access denied (system path): {filename}")
+                        return False
+                return True
+            # Relative path: must not escape the current working directory.
+            cwd = Path.cwd().resolve()
+            resolved = cwd.joinpath(p).resolve()
+            if not str(resolved).startswith(str(cwd) + "/") and resolved != cwd:
+                self.interpreter.log_output(
+                    f"File error: path traversal is not allowed: {filename}")
+                return False
+            return True
+        except Exception as exc:
+            self.interpreter.log_output(f"File error: invalid path: {exc}")
+            return False
+
+    def _safe_regex_op(self, fn, *args, timeout_sec: float = 5.0):
+        """Run a callable that uses re, abandoning it after *timeout_sec* seconds.
+
+        Returns the result, or None on timeout/error (and logs the problem).
+        This prevents ReDoS attacks from hanging the interpreter.
+        """
+        result: list = [None]
+        exc_msg: list = [None]
+
+        def _worker():
+            try:
+                result[0] = fn(*args)
+            except re.error as e:
+                exc_msg[0] = f"invalid pattern: {e}"
+            except Exception as e:  # noqa: BLE001
+                exc_msg[0] = str(e)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=timeout_sec)
+
+        if t.is_alive():
+            self.interpreter.log_output(
+                "REGEX error: pattern timed out (possible ReDoS attack)")
+            return None
+        if exc_msg[0]:
+            self.interpreter.log_output(f"REGEX error: {exc_msg[0]}")
+            return None
+        return result[0]
+
     def _logo_repeat(self, command):
         """REPEAT n [ commands ]"""
-        m = re.match(r'REPEAT\s+(\S+)\s*\[(.+)\]', command, re.IGNORECASE | re.DOTALL)
+        # Use a balanced-bracket finder instead of a greedy regex so that
+        # nested REPEAT blocks (e.g. REPEAT 4 [REPEAT 3 [FD 10] RT 90]) work.
+        m = re.match(r'REPEAT\s+(\S+)\s*\[', command, re.IGNORECASE)
         if not m:
             self.interpreter.log_output("REPEAT syntax: REPEAT n [ commands ]")
             return "continue"
+        bracket_start = command.index('[', m.start())
+        bracket_end = self._find_matching_bracket(command, bracket_start)
+        if bracket_end == -1:
+            self.interpreter.log_output("REPEAT: unmatched '[' bracket")
+            return "continue"
         count_expr = m.group(1)
-        block = m.group(2).strip()
+        block = command[bracket_start + 1:bracket_end].strip()
 
         # Evaluate count
         try:
@@ -1791,9 +1874,13 @@ class TempleCodeExecutor:
             return "continue"
 
         var_name = m.group(1).upper()
-        start = float(self.interpreter.evaluate_expression(m.group(2)))
-        end = float(self.interpreter.evaluate_expression(m.group(3)))
-        step = float(self.interpreter.evaluate_expression(m.group(4))) if m.group(4) else 1
+        try:
+            start = float(self.interpreter.evaluate_expression(m.group(2)))
+            end = float(self.interpreter.evaluate_expression(m.group(3)))
+            step = float(self.interpreter.evaluate_expression(m.group(4))) if m.group(4) else 1.0
+        except (TypeError, ValueError) as exc:
+            self.interpreter.log_output(f"FOR error: non-numeric bound — {exc}")
+            return "continue"
 
         if step == 0:
             self.interpreter.log_output("FOR error: STEP cannot be 0")
@@ -2158,9 +2245,14 @@ class TempleCodeExecutor:
             # Skip to END SELECT
             return self._skip_to_end_select()
 
-        # Check if this CASE matches
+        # Check if this CASE matches.  Coerce both sides to float for numeric
+        # comparison so that e.g. CASE 5 matches SELECT CASE "5".
         case_val = self._eval_basic_expression(text)
-        if case_val == sel["value"] and not sel["matched"]:
+        try:
+            matched = float(case_val) == float(sel["value"])
+        except (TypeError, ValueError):
+            matched = str(case_val) == str(sel["value"])
+        if matched and not sel["matched"]:
             sel["matched"] = True
             return "continue"
         else:
@@ -2185,13 +2277,19 @@ class TempleCodeExecutor:
 
     def _skip_to_next_case(self):
         self.interpreter.current_line += 1
+        found = False
         while self.interpreter.current_line < len(self.interpreter.program_lines):
             _, lt = self.interpreter.program_lines[self.interpreter.current_line]
             upper_lt = lt.strip().upper()
             if upper_lt.startswith("CASE") or upper_lt == "END SELECT":
                 self.interpreter.current_line -= 1  # Will be incremented by main loop
+                found = True
                 break
             self.interpreter.current_line += 1
+        if not found:
+            # Reached end of program without finding CASE / END SELECT
+            if self.interpreter.select_stack:
+                self.interpreter.select_stack.pop()
         return "continue"
 
     # --- BASIC SWAP ---
@@ -3365,9 +3463,11 @@ class TempleCodeExecutor:
         filename = m.group(1)
         mode_str = m.group(2).upper()
         handle = int(m.group(3))
+        if not self._validate_file_path(filename):
+            return "continue"
         mode_map = {"INPUT": "r", "OUTPUT": "w", "APPEND": "a"}
         try:
-            self.interpreter.file_handles[handle] = open(filename, mode_map[mode_str], encoding="utf-8")
+            self.interpreter.file_handles[handle] = open(filename, mode_map[mode_str], encoding="utf-8")  # noqa: SIM115
         except Exception as e:
             self.interpreter.log_output(f"File error: {e}")
         return "continue"
@@ -3735,6 +3835,10 @@ class TempleCodeExecutor:
             return "continue"
         filename = m.group(1)
         var = m.group(2).upper()
+        # Report 0 for unsafe paths rather than leaking filesystem information.
+        if not self._validate_file_path(filename):
+            self.interpreter.variables[var] = 0
+            return "continue"
         import os
         exists = 1 if os.path.exists(filename) else 0
         self.interpreter.variables[var] = exists
@@ -3747,6 +3851,8 @@ class TempleCodeExecutor:
             self.interpreter.log_output('COPYFILE syntax: COPYFILE "src", "dst"')
             return "continue"
         src, dst = m.group(1), m.group(2)
+        if not self._validate_file_path(src) or not self._validate_file_path(dst):
+            return "continue"
         try:
             import shutil
             shutil.copyfile(src, dst)
@@ -3761,6 +3867,8 @@ class TempleCodeExecutor:
             self.interpreter.log_output('DELETEFILE syntax: DELETEFILE "file"')
             return "continue"
         filename = m.group(1)
+        if not self._validate_file_path(filename):
+            return "continue"
         import os
         try:
             os.remove(filename)
@@ -3981,7 +4089,7 @@ class TempleCodeExecutor:
                 pattern = m.group(1)
                 expr = str(self._eval_basic_expression(m.group(2).strip()))
                 var = m.group(3).upper()
-                match = re.search(pattern, expr)
+                match = self._safe_regex_op(re.search, pattern, expr)
                 if match:
                     self.interpreter.variables[var] = match.group(0)
                     self.interpreter.variables[var + "_POS"] = match.start()
@@ -4002,7 +4110,9 @@ class TempleCodeExecutor:
                 replacement = m.group(2)
                 expr = str(self._eval_basic_expression(m.group(3).strip()))
                 var = m.group(4).upper()
-                self.interpreter.variables[var] = re.sub(pattern, replacement, expr)
+                result = self._safe_regex_op(re.sub, pattern, replacement, expr)
+                if result is not None:
+                    self.interpreter.variables[var] = result
             return "continue"
 
         elif upper_text.startswith("FIND"):
@@ -4011,9 +4121,10 @@ class TempleCodeExecutor:
                 pattern = m.group(1)
                 expr = str(self._eval_basic_expression(m.group(2).strip()))
                 list_name = m.group(3).upper()
-                matches = re.findall(pattern, expr)
-                self.interpreter.lists[list_name] = matches
-                self.interpreter.variables[list_name + "_LENGTH"] = len(matches)
+                matches = self._safe_regex_op(re.findall, pattern, expr)
+                if matches is not None:
+                    self.interpreter.lists[list_name] = matches
+                    self.interpreter.variables[list_name + "_LENGTH"] = len(matches)
             return "continue"
 
         elif upper_text.startswith("SPLIT"):
@@ -4022,8 +4133,10 @@ class TempleCodeExecutor:
                 pattern = m.group(1)
                 expr = str(self._eval_basic_expression(m.group(2).strip()))
                 list_name = m.group(3).upper()
-                self.interpreter.lists[list_name] = re.split(pattern, expr)
-                self.interpreter.variables[list_name + "_LENGTH"] = len(self.interpreter.lists[list_name])
+                parts = self._safe_regex_op(re.split, pattern, expr)
+                if parts is not None:
+                    self.interpreter.lists[list_name] = parts
+                    self.interpreter.variables[list_name + "_LENGTH"] = len(parts)
             return "continue"
 
         self.interpreter.log_output("REGEX syntax: REGEX MATCH|REPLACE|FIND|SPLIT ...")

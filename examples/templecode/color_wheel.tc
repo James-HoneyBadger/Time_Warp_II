@@ -1,0 +1,100 @@
+REM TempleCode Color Wheel
+REM Draws a full HSV colour wheel using turtle geometry
+
+CLEARSCREEN
+HIDETURTLE
+SETBACKGROUND black
+PRINT "Drawing colour wheel..."
+
+REM Draw 360 spokes, each a different hue
+REM Use HSV → RGB approximation via colour names cycling
+
+DATA "red","orangered","darkorange","orange","gold","yellow"
+DATA "yellowgreen","lawngreen","lime","mediumspringgreen","springgreen","mediumaquamarine"
+DATA "cyan","deepskyblue","dodgerblue","cornflowerblue","blue","mediumblue"
+DATA "darkblue","blueviolet","purple","mediumpurple","violet","magenta"
+
+LET COLORS = 24
+DIM C(24)
+FOR I = 1 TO COLORS
+    READ C(I)
+NEXT I
+
+REM Outer ring: coloured arcs
+SETPENSIZE 10
+FOR I = 1 TO COLORS
+    LET COL_IDX = ((I - 1) MOD COLORS) + 1
+    LET CUR_COL = C(COL_IDX)
+    SETCOLOR CUR_COL
+    PENUP
+    HOME
+    LET HDG = (I-1)*(360/COLORS)
+    SETHEADING HDG
+    PENDOWN
+    FORWARD 120
+    RIGHT 90
+    ARC 360/COLORS 120
+    PENUP
+    HOME
+NEXT I
+
+REM Middle ring: lighter saturation
+SETPENSIZE 8
+FOR I = 1 TO COLORS
+    LET COL_IDX = ((I - 1) MOD COLORS) + 1
+    LET CUR_COL = C(COL_IDX)
+    SETCOLOR CUR_COL
+    PENUP
+    HOME
+    LET HDG = (I-1)*(360/COLORS)
+    SETHEADING HDG
+    FORWARD 70
+    PENDOWN
+    ARC 360/COLORS 70
+    PENUP
+NEXT I
+
+REM Inner ring: small spokes
+SETPENSIZE 4
+FOR I = 1 TO COLORS * 2
+    LET COL_IDX = ((I - 1) MOD COLORS) + 1
+    LET CUR_COL = C(COL_IDX)
+    SETCOLOR CUR_COL
+    PENUP
+    HOME
+    LET HDG = I*(360/(COLORS*2))
+    SETHEADING HDG
+    PENDOWN
+    FORWARD 40
+    PENUP
+NEXT I
+
+REM White center hub
+PENUP
+HOME
+PENDOWN
+SETCOLOR white
+CIRCLEFILL 15
+
+REM Label
+PENUP
+SETXY -55 -155
+PENDOWN
+SETCOLOR white
+LABEL "Colour Wheel" 14
+
+REM Small spectrum strip along the bottom
+SETPENSIZE 12
+FOR I = 1 TO COLORS
+    LET COL_IDX = I
+    LET CUR_COL = C(COL_IDX)
+    SETCOLOR CUR_COL
+    PENUP
+    LET SX = -160 + (I - 1) * 14
+    SETXY SX -145
+    PENDOWN
+    SETXY SX -130
+NEXT I
+
+PRINT "Colour wheel complete!"
+END

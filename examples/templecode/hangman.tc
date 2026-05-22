@@ -1,0 +1,178 @@
+REM TempleCode Hangman
+REM Guess the hidden word one letter at a time
+
+RANDOMIZE TIMER
+
+REM Word bank
+DATA "PYTHON", "KEYBOARD", "RAINBOW", "DRAGON", "WIZARD"
+DATA "PLANET", "CASTLE", "PUZZLE", "TORNADO", "DIAMOND"
+DATA "VOLCANO", "PENGUIN", "LANTERN", "COMPASS", "CACTUS"
+
+REM Pick a random word (1-15)
+LET WORD_NUM = INT(RND * 15) + 1
+FOR I = 1 TO WORD_NUM
+    READ WORD
+NEXT I
+
+LET WORD_LEN = LEN(WORD)
+LET MAX_WRONG = 6
+LET WRONG = 0
+
+REM Build underscores for display
+LET DISPLAY = REPEAT$("_ ", WORD_LEN)
+
+REM Store guessed letters
+LET GUESSED = ""
+
+PRINT "================================"
+PRINT "          HANGMAN"
+PRINT "================================"
+PRINT "  Guess the "; WORD_LEN; "-letter word!"
+PRINT "  You have "; MAX_WRONG; " wrong guesses."
+PRINT ""
+
+*guess_loop
+
+GOSUB DrawGallows
+PRINT ""
+PRINT "  Word: "; DISPLAY
+PRINT ""
+PRINT "  Wrong guesses: "; WRONG; "/"; MAX_WRONG
+IF LEN(GUESSED) > 0 THEN PRINT "  Letters tried: "; GUESSED
+PRINT ""
+PRINT "  Enter a letter:"
+INPUT GUESS$
+LET GUESS$ = UCASE$(LEFT$(TRIM$(GUESS$), 1))
+
+IF LEN(GUESS$) = 0 THEN GOTO guess_loop
+IF CONTAINS(GUESSED, GUESS$) THEN PRINT "  Already tried '" + GUESS$ + "'!"
+IF CONTAINS(GUESSED, GUESS$) THEN GOTO guess_loop
+LET GUESSED = GUESSED + GUESS$
+
+REM Check if letter is in word
+LET FOUND = 0
+FOR I = 1 TO WORD_LEN
+    IF MID$(WORD, I, 1) = GUESS$ THEN
+        LET FOUND = 1
+        REM Update display: replace underscore at position
+        LET LEFT_P = LEFT$(DISPLAY, (I-1)*2)
+        LET RIGHT_P = MID$(DISPLAY, (I-1)*2+2, WORD_LEN*2)
+        LET DISPLAY = LEFT_P + GUESS$ + RIGHT_P
+    END IF
+NEXT I
+
+IF FOUND = 0 THEN
+    LET WRONG = WRONG + 1
+    PRINT "  '" + GUESS$ + "' is NOT in the word!"
+ELSE
+    PRINT "  '" + GUESS$ + "' is in the word! Good guess!"
+END IF
+
+REM Check for win: no underscores left
+IF NOT CONTAINS(DISPLAY, "_") THEN GOTO you_win
+IF WRONG >= MAX_WRONG THEN GOTO you_lose
+
+GOTO guess_loop
+
+*you_win
+GOSUB DrawGallows
+PRINT ""
+PRINT "================================"
+PRINT "    YOU WIN! Well done!"
+PRINT "  The word was: "; WORD
+PRINT "================================"
+END
+
+*you_lose
+LET WRONG = MAX_WRONG
+GOSUB DrawGallows
+PRINT ""
+PRINT "================================"
+PRINT "    GAME OVER - You were hanged!"
+PRINT "  The word was: "; WORD
+PRINT "================================"
+END
+
+REM --------------------------------
+DrawGallows:
+    CLEARSCREEN
+    HIDETURTLE
+    PENUP
+    HOME
+
+    REM Gallows structure
+    SETPENSIZE 3
+    SETCOLOR white
+
+    REM Base
+    PENUP
+    SETXY -80 -120
+    PENDOWN
+    SETXY 80 -120
+
+    REM Pole
+    PENUP
+    SETXY -40 -120
+    PENDOWN
+    SETXY -40 120
+
+    REM Arm
+    PENUP
+    SETXY -40 120
+    PENDOWN
+    SETXY 40 120
+
+    REM Rope
+    PENUP
+    SETXY 40 120
+    PENDOWN
+    SETXY 40 80
+
+    REM Head
+    IF WRONG >= 1 THEN
+        PENUP
+        SETXY 40 60
+        PENDOWN
+        CIRCLE 20
+    END IF
+
+    REM Body
+    IF WRONG >= 2 THEN
+        PENUP
+        SETXY 40 40
+        PENDOWN
+        SETXY 40 -20
+    END IF
+
+    REM Left arm
+    IF WRONG >= 3 THEN
+        PENUP
+        SETXY 40 20
+        PENDOWN
+        SETXY 10 -10
+    END IF
+
+    REM Right arm
+    IF WRONG >= 4 THEN
+        PENUP
+        SETXY 40 20
+        PENDOWN
+        SETXY 70 -10
+    END IF
+
+    REM Left leg
+    IF WRONG >= 5 THEN
+        PENUP
+        SETXY 40 -20
+        PENDOWN
+        SETXY 10 -60
+    END IF
+
+    REM Right leg
+    IF WRONG >= 6 THEN
+        PENUP
+        SETXY 40 -20
+        PENDOWN
+        SETXY 70 -60
+    END IF
+RETURN

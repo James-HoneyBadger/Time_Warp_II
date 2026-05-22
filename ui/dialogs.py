@@ -16,7 +16,7 @@ def show_find_dialog(app: TempleCodeApp) -> None:
     tk = app.tk
     dlg = tk.Toplevel(app.root)
     dlg.title("Find")
-    dlg.geometry("400x150")
+    dlg.geometry("440x180")
     dlg.resizable(False, False)
     dlg.transient(app.root)
     dlg.grab_set()
@@ -34,6 +34,30 @@ def show_find_dialog(app: TempleCodeApp) -> None:
     tk.Checkbutton(opts, text="Whole word", variable=whole_var).pack(side=tk.LEFT, padx=5)
     tk.Checkbutton(opts, text="Regex", variable=regex_var).pack(side=tk.LEFT, padx=5)
 
+    status_var = tk.StringVar(value="")
+    tk.Label(dlg, textvariable=status_var, fg="#888888", font=("Arial", 8)).grid(
+        row=2, column=0, columnspan=2, pady=(0, 4))
+
+    def _count_matches(term):
+        """Return the total number of occurrences of *term* in the editor."""
+        try:
+            content = app.editor_text.get("1.0", tk.END)
+            if not term:
+                return 0
+            if not case_var.get():
+                import re as _re
+                try:
+                    flags = _re.IGNORECASE if not case_var.get() else 0
+                    pattern = term if regex_var.get() else _re.escape(term)
+                    if whole_var.get():
+                        pattern = rf"\b{pattern}\b"
+                    return len(_re.findall(pattern, content, flags))
+                except Exception:
+                    return 0
+            return content.count(term)
+        except Exception:
+            return 0
+
     def do_find():
         term = search_var.get()
         if not term:
@@ -43,6 +67,7 @@ def show_find_dialog(app: TempleCodeApp) -> None:
             term, start_pos=app.editor_text.index(tk.INSERT),
             case_sensitive=case_var.get(), whole_word=whole_var.get(), regex=regex_var.get(),
         )
+        total = _count_matches(term)
         if match:
             s, e = match
             app.editor_text.tag_remove("sel", "1.0", tk.END)
@@ -53,12 +78,12 @@ def show_find_dialog(app: TempleCodeApp) -> None:
                 term, case_sensitive=case_var.get(),
                 whole_word=whole_var.get(), regex=regex_var.get(),
             )
-            app._output(f"Found '{term}' at {s}\n")
+            status_var.set(f"{total} match{'es' if total != 1 else ''} in file")
         else:
-            app._output(f"'{term}' not found\n", "out_warn")
+            status_var.set("No matches found")
 
     bf = tk.Frame(dlg)
-    bf.grid(row=2, column=0, columnspan=2, pady=10)
+    bf.grid(row=3, column=0, columnspan=2, pady=10)
     tk.Button(bf, text="Find", command=do_find, width=10).pack(side=tk.LEFT, padx=5)
     tk.Button(bf, text="Find Next", command=do_find, width=10).pack(side=tk.LEFT, padx=5)
     tk.Button(bf, text="Close", command=dlg.destroy, width=10).pack(side=tk.LEFT, padx=5)
@@ -116,11 +141,32 @@ def show_replace_dialog(app: TempleCodeApp) -> None:
         s, r = search_var.get(), replace_var.get()
         if not s:
             return
-        count = app.editor_text.replace_all(
+        # Count occurrences first and ask for confirmation
+        try:
+            import re as _re
+            flags = 0 if case_var.get() else _re.IGNORECASE
+            pattern = s if regex_var.get() else _re.escape(s)
+            if whole_var.get():
+                pattern = rf"\b{pattern}\b"
+            content = app.editor_text.get("1.0", tk.END)
+            count = len(_re.findall(pattern, content, flags))
+        except Exception:
+            count = 0
+        if count == 0:
+            app._output(f"'{s}' not found.\n", "out_warn")
+            return
+        noun = "occurrence" if count == 1 else "occurrences"
+        if not app.messagebox.askyesno(
+            "Replace All",
+            f"Replace {count} {noun} of '{s}' with '{r}'?",
+            parent=dlg,
+        ):
+            return
+        replaced_count = app.editor_text.replace_all(
             s, r, case_sensitive=case_var.get(),
             whole_word=whole_var.get(), regex=regex_var.get(),
         )
-        app._output(f"Replaced {count} occurrence(s) of '{s}' with '{r}'\n", "out_ok")
+        app._output(f"Replaced {replaced_count} {noun} of '{s}' with '{r}'.\n", "out_ok")
         app.editor_text.clear_search_highlights()
 
     bf = tk.Frame(dlg)
@@ -509,6 +555,8 @@ def show_profiler_report(app: TempleCodeApp) -> None:
                   "then run a program.")
     else:
         tw.insert(tk.END, app._profiler.format_report())
+        tw.insert(tk.END, "\n\n")
+        tw.insert(tk.END, app._profiler.format_sub_report())
 
     tw.config(state=tk.DISABLED)
 
@@ -566,8 +614,23 @@ def show_snippet_picker(app: TempleCodeApp) -> None:
     filter_var.trace_add("write", refresh_list)
     refresh_list()
 
-    desc_label = tk.Label(dlg, text="", wraplength=400, anchor="w", justify="left")
-    desc_label.pack(fill=tk.X, padx=10, pady=5)
+    # Preview pane: description + code body
+    preview_frame = tk.LabelFrame(dlg, text="Preview", padx=5, pady=3)
+    preview_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+    desc_label = tk.Label(preview_frame, text="", wraplength=390, anchor="w",
+                          justify="left", font=("Arial", 9), fg="#555")
+    desc_label.pack(fill=tk.X)
+    preview_text = tk.Text(preview_frame, height=5, font=("Courier", 9),
+                           bg="#f5f5f5", fg="#222", state=tk.DISABLED,
+                           wrap=tk.NONE, relief=tk.FLAT)
+    preview_text.pack(fill=tk.X)
+
+    def _set_preview(body: str, desc: str) -> None:
+        preview_text.config(state=tk.NORMAL)
+        preview_text.delete("1.0", tk.END)
+        preview_text.insert("1.0", body)
+        preview_text.config(state=tk.DISABLED)
+        desc_label.config(text=desc)
 
     def on_select(_event=None):
         sel = listbox.curselection()
@@ -577,7 +640,10 @@ def show_snippet_picker(app: TempleCodeApp) -> None:
         prefix = text[:10].strip()
         for key in snippet_keys:
             if snippets[key].get("prefix", "") == prefix:
-                desc_label.config(text=snippets[key].get("description", ""))
+                _set_preview(
+                    snippets[key].get("body", ""),
+                    snippets[key].get("description", ""),
+                )
                 break
 
     listbox.bind("<<ListboxSelect>>", on_select)

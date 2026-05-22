@@ -34,6 +34,12 @@ class StatusBar:
         )
         self.labels["cursor"].pack(side=tk.LEFT, padx=(0, 20))
 
+        self.labels["stats"] = tk.Label(
+            self.frame, text="0 chars, 0 words", bg="#007acc", fg="white",
+            font=font, anchor="w",
+        )
+        self.labels["stats"].pack(side=tk.LEFT, padx=(0, 20))
+
         from core.config import THEMES, FONT_SIZES
         self.labels["theme"] = tk.Label(
             self.frame, text=THEMES[app.current_theme]["name"],
@@ -47,6 +53,12 @@ class StatusBar:
             bg="#007acc", fg="white", font=font, anchor="e",
         )
         self.labels["font"].pack(side=tk.RIGHT, padx=(0, 15))
+
+        self.labels["encoding"] = tk.Label(
+            self.frame, text="UTF-8",
+            bg="#007acc", fg="white", font=font, anchor="e",
+        )
+        self.labels["encoding"].pack(side=tk.RIGHT, padx=(0, 15))
 
     # ------------------------------------------------------------------
 
@@ -71,12 +83,16 @@ class StatusBar:
     # ------------------------------------------------------------------
 
     def _update(self) -> None:
-        """Periodically refresh the cursor position label."""
+        """Periodically refresh the cursor position and document stats labels."""
         try:
             widget = self.app.editor_text
             idx = widget.index(self.app.tk.INSERT) if hasattr(widget, 'index') else "1.0"
             line, col = idx.split(".")
             self.labels["cursor"].config(text=f"Ln {line}, Col {int(col)+1}")
+            content = widget.get("1.0", "end-1c") if hasattr(widget, 'get') else ""
+            char_count = len(content)
+            word_count = len(content.split())
+            self.labels["stats"].config(text=f"{char_count} chars, {word_count} words")
         except Exception:
             pass
         self._after_id = self.app.root.after(250, self._update)

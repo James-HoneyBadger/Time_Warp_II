@@ -24,7 +24,8 @@ def build_menus(app: TempleCodeApp) -> None:
     file_menu.add_command(label="Open File...", command=app.load_file, accelerator="Ctrl+O")
     file_menu.add_separator()
     file_menu.add_command(label="Save", command=app.save_file_quick, accelerator="Ctrl+S")
-    file_menu.add_command(label="Save As...", command=app.save_file, accelerator="Ctrl+Shift+S")
+    file_menu.add_command(label="Save All", command=app.save_all, accelerator="Ctrl+Shift+S")
+    file_menu.add_command(label="Save As...", command=app.save_file, accelerator="Ctrl+Alt+S")
     file_menu.add_separator()
     app._recent_menu = tk.Menu(file_menu, tearoff=0)
     file_menu.add_cascade(label="Recent Files", menu=app._recent_menu)
@@ -70,55 +71,82 @@ def build_menus(app: TempleCodeApp) -> None:
         label="Split Editor", variable=app._split_var,
         command=lambda: app.editor_panel.toggle_split(app._split_var))
     view_menu.add_separator()
+    view_menu.add_command(label="Variable Inspector",
+                          command=lambda: app._show_variable_inspector(),
+                          accelerator="Ctrl+Shift+V")
+    view_menu.add_separator()
     view_menu.add_command(label="Command Palette...",
                           command=lambda: dialogs.show_command_palette(app),
                           accelerator="Ctrl+Shift+P")
 
     # --- Program ---
-    program_menu = tk.Menu(menubar, tearoff=0)
+    app._program_menu = program_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Program", menu=program_menu)
     program_menu.add_command(label="Run Program", command=app.run_code, accelerator="F5")
     program_menu.add_command(label="Stop Program", command=app.stop_code, accelerator="Ctrl+Break")
+    # Indices 0=Run, 1=Stop — used by app._update_run_menu_states()
     program_menu.add_separator()
     program_menu.add_command(label="Export Canvas as PNG...", command=lambda: app.graphics_panel.export_png())
     program_menu.add_command(label="Export Canvas as SVG...", command=lambda: app.graphics_panel.export_svg())
+    program_menu.add_command(label="Copy Canvas to Clipboard", command=lambda: app.graphics_panel.copy_to_clipboard(), accelerator="Ctrl+Shift+C")
     program_menu.add_separator()
     program_menu.add_command(label="Show Import Graph", command=lambda: dialogs.show_import_graph(app))
     program_menu.add_separator()
     examples_menu = tk.Menu(program_menu, tearoff=0)
     program_menu.add_cascade(label="Load Example", menu=examples_menu)
-    for item in [
+
+    beginner_menu = tk.Menu(examples_menu, tearoff=0)
+    examples_menu.add_cascade(label="⭐ Beginner", menu=beginner_menu)
+    for name, path in [
         ("Hello World",            "examples/templecode/hello.tc"),
-        ("Turtle Graphics Spiral", "examples/templecode/spiral.tc"),
-        ("Quiz (PILOT style)",     "examples/templecode/quiz.tc"),
-        ("Number Guessing Game",   "examples/templecode/guess.tc"),
-        ("Mandelbrot (Turtle Art)", "examples/templecode/mandelbrot.tc"),
-        None,
-        ("Calculator",             "examples/templecode/calculator.tc"),
         ("Countdown Timer",        "examples/templecode/countdown.tc"),
         ("FizzBuzz",               "examples/templecode/fizzbuzz.tc"),
         ("Fibonacci Sequence",     "examples/templecode/fibonacci.tc"),
-        ("Times Tables Trainer",   "examples/templecode/timestables.tc"),
         ("Temperature Converter",  "examples/templecode/temperature.tc"),
         ("Dice Roller",            "examples/templecode/dice.tc"),
-        None,
+        ("Times Tables Trainer",   "examples/templecode/timestables.tc"),
+        ("Roman Numerals",          "examples/templecode/roman_numerals.tc"),
+    ]:
+        beginner_menu.add_command(label=name, command=lambda p=path: app.load_example(p))
+
+    inter_menu = tk.Menu(examples_menu, tearoff=0)
+    examples_menu.add_cascade(label="⭐⭐ Intermediate", menu=inter_menu)
+    for name, path in [
+        ("Calculator",             "examples/templecode/calculator.tc"),
+        ("Number Guessing Game",   "examples/templecode/guess.tc"),
+        ("Quiz (PILOT style)",     "examples/templecode/quiz.tc"),
         ("Science Quiz",           "examples/templecode/science_quiz.tc"),
         ("Adventure Story",        "examples/templecode/adventure.tc"),
-        ("Interactive Drawing",    "examples/templecode/interactive_drawing.tc"),
-        None,
-        ("Rainbow Spiral",         "examples/templecode/rainbow.tc"),
+        ("Todo List",              "examples/templecode/todo_list.tc"),
+        ("Text Processor",         "examples/templecode/text_processor.tc"),
+        ("Morse Code Encoder",      "examples/templecode/morse_code.tc"),
+        ("Number Base Converter",   "examples/templecode/base_converter.tc"),
+        ("Bubble Sort Visualizer",  "examples/templecode/bubble_sort.tc"),
+    ]:
+        inter_menu.add_command(label=name, command=lambda p=path: app.load_example(p))
+
+    adv_menu = tk.Menu(examples_menu, tearoff=0)
+    examples_menu.add_cascade(label="⭐⭐⭐ Advanced", menu=adv_menu)
+    for name, path in [
         ("Shapes Gallery",         "examples/templecode/shapes.tc"),
+        ("Turtle Graphics Spiral", "examples/templecode/spiral.tc"),
+        ("Rainbow Spiral",         "examples/templecode/rainbow.tc"),
         ("Flower Garden",          "examples/templecode/flower.tc"),
+        ("Interactive Drawing",    "examples/templecode/interactive_drawing.tc"),
         ("Kaleidoscope",           "examples/templecode/kaleidoscope.tc"),
         ("Snowflake Fractal",      "examples/templecode/snowflake.tc"),
         ("Clock Face",             "examples/templecode/clock.tc"),
-        None,
+        ("Mandelbrot (Turtle Art)", "examples/templecode/mandelbrot.tc"),
         ("★ Budget Tracker Pro",   "examples/templecode/budget_tracker.tc"),
+        ("Starfield Animation",     "examples/templecode/starfield.tc"),
+        ("Colour Wheel",            "examples/templecode/color_wheel.tc"),
+        ("Fractal Tree",            "examples/templecode/fractal_tree.tc"),
+        ("Fireworks Display",       "examples/templecode/fireworks.tc"),
+        ("Blackjack Card Game",     "examples/templecode/blackjack.tc"),
+        ("Hangman",                 "examples/templecode/hangman.tc"),
+        ("Tic-Tac-Toe",            "examples/templecode/tictactoe.tc"),
     ]:
-        if item is None:
-            examples_menu.add_separator()
-        else:
-            examples_menu.add_command(label=item[0], command=lambda p=item[1]: app.load_example(p))
+        adv_menu.add_command(label=name, command=lambda p=path: app.load_example(p))
 
     # --- Debug ---
     debug_menu = tk.Menu(menubar, tearoff=0)
@@ -226,6 +254,8 @@ def build_menus(app: TempleCodeApp) -> None:
         ("Toggle Split Editor",  lambda: app.editor_panel.toggle_split(app._split_var)),
         ("Export Canvas as PNG",  lambda: app.graphics_panel.export_png()),
         ("Export Canvas as SVG",  lambda: app.graphics_panel.export_svg()),
+        ("Copy Canvas to Clipboard", lambda: app.graphics_panel.copy_to_clipboard()),
+        ("Variable Inspector",   lambda: app._show_variable_inspector()),
         ("Show Import Graph",    lambda: dialogs.show_import_graph(app)),
         ("Format Code",          app._format_editor_code),
         ("Insert Snippet",       lambda: dialogs.show_snippet_picker(app)),

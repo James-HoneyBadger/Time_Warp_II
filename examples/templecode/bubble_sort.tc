@@ -1,0 +1,103 @@
+REM TempleCode Bubble Sort Visualizer
+REM Shows the sorting process as coloured bars on the canvas
+
+RANDOMIZE TIMER
+CLEARSCREEN
+HIDETURTLE
+SETBACKGROUND black
+
+PRINT "Bubble Sort Visualizer"
+PRINT "Generating 20 random bars..."
+
+LET N = 20
+DIM NUMS(20)
+
+REM Fill with random values 10-140
+FOR I = 1 TO N
+    LET NUMS(I) = INT(RND * 131) + 10
+NEXT I
+
+GOSUB DrawBars
+
+PRINT "Sorting..."
+DELAY 400
+
+REM Bubble sort with visualization
+FOR PASS = 1 TO N - 1
+    FOR J = 1 TO N - PASS
+        IF NUMS(J) > NUMS(J+1) THEN
+            REM Swap
+            LET TEMP = NUMS(J)
+            LET NUMS(J) = NUMS(J+1)
+            LET NUMS(J+1) = TEMP
+            GOSUB DrawBarsHighlight
+        END IF
+    NEXT J
+NEXT PASS
+
+GOSUB DrawBarsDone
+PRINT "Sort complete!"
+END
+
+REM --------------------------------
+DrawBars:
+    CLEARSCREEN
+    HIDETURTLE
+    LET BAR_W = 16
+    LET START_X = -160
+    FOR K = 1 TO N
+        LET BX = START_X + (K - 1) * BAR_W
+        LET BH = NUMS(K)
+        PENUP
+        SETXY BX -140
+        PENDOWN
+        REM Colour based on height
+        IF BH < 40 THEN SETCOLOR steelblue
+        IF BH >= 40 AND BH < 80 THEN SETCOLOR dodgerblue
+        IF BH >= 80 AND BH < 110 THEN SETCOLOR cyan
+        IF BH >= 110 THEN SETCOLOR deepskyblue
+        SETFILLCOLOR cyan
+        RECTFILL BAR_W-1 BH
+    NEXT K
+RETURN
+
+DrawBarsHighlight:
+    CLEARSCREEN
+    HIDETURTLE
+    LET BAR_W = 16
+    LET START_X = -160
+    FOR K = 1 TO N
+        LET BX = START_X + (K - 1) * BAR_W
+        LET BH = NUMS(K)
+        PENUP
+        SETXY BX -140
+        PENDOWN
+        IF K = J OR K = J + 1 THEN
+            SETCOLOR red
+            SETFILLCOLOR orange
+        ELSE
+            SETCOLOR steelblue
+            SETFILLCOLOR cyan
+        END IF
+        RECTFILL BAR_W-1 BH
+    NEXT K
+    DELAY 30
+RETURN
+
+DrawBarsDone:
+    CLEARSCREEN
+    HIDETURTLE
+    LET BAR_W = 16
+    LET START_X = -160
+    FOR K = 1 TO N
+        LET BX = START_X + (K - 1) * BAR_W
+        LET BH = NUMS(K)
+        PENUP
+        SETXY BX -140
+        PENDOWN
+        SETCOLOR lime
+        SETFILLCOLOR green
+        RECTFILL BAR_W-1 BH
+        DELAY 20
+    NEXT K
+RETURN

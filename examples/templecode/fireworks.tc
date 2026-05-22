@@ -1,0 +1,107 @@
+REM TempleCode Fireworks
+REM Animated fireworks bursts on the canvas
+
+RANDOMIZE TIMER
+CLEARSCREEN
+HIDETURTLE
+SETBACKGROUND black
+
+PRINT "Launching fireworks! 🎆"
+
+REM Firework colours
+DATA "red", "orange", "yellow", "cyan", "magenta", "lime", "gold", "white", "violet", "deepskyblue"
+
+REM --- Draw 8 fireworks ---
+FOR SHOT = 1 TO 8
+
+    REM Restore colour list each burst
+    RESTORE
+    LET COL_IDX = INT(RND * 10) + 1
+    FOR CI = 1 TO COL_IDX
+        READ BURST_COLOR
+    NEXT CI
+
+    REM Random launch position
+    LET BURST_X = INT(RND * 360) - 180
+    LET BURST_Y = INT(RND * 200) - 30
+
+    REM Draw rocket trail
+    SETPENSIZE 1
+    SETCOLOR white
+    PENUP
+    SETXY BURST_X -150
+    PENDOWN
+    SETXY BURST_X BURST_Y
+    PENUP
+
+    REM Draw burst — spokes radiating outward
+    SETCOLOR BURST_COLOR
+    SETPENSIZE 2
+    LET SPOKE_LEN = INT(RND * 25) + 25
+    LET NUM_SPOKES = INT(RND * 8) + 12
+
+    FOR SPOKE = 1 TO NUM_SPOKES
+        LET ANGLE = (SPOKE * 360) / NUM_SPOKES
+        LET RAD = ANGLE * PI / 180
+        LET SIN_VAL = SIN(RAD)
+        LET COS_VAL = COS(RAD)
+        LET TIP_X = BURST_X + SIN_VAL * SPOKE_LEN
+        LET TIP_Y = BURST_Y + COS_VAL * SPOKE_LEN
+        PENUP
+        SETXY BURST_X BURST_Y
+        PENDOWN
+        SETXY TIP_X TIP_Y
+
+        REM Sparkle dot at the tip
+        PENUP
+        SETXY TIP_X TIP_Y
+        PENDOWN
+        DOT 3
+    NEXT SPOKE
+
+    REM Inner ring
+    PENUP
+    SETXY BURST_X BURST_Y
+    PENDOWN
+    SETCOLOR white
+    LET RING_R = INT(SPOKE_LEN / 3)
+    CIRCLE RING_R
+
+    REM Center dot
+    PENUP
+    SETXY BURST_X BURST_Y
+    PENDOWN
+    SETCOLOR yellow
+    DOT 6
+
+    DELAY 80
+
+NEXT SHOT
+
+REM Final big burst in the center
+PENUP
+SETXY 0 30
+PENDOWN
+SETPENSIZE 3
+
+FOR RING = 1 TO 4
+    IF RING = 1 THEN SETCOLOR red
+    IF RING = 2 THEN SETCOLOR gold
+    IF RING = 3 THEN SETCOLOR cyan
+    IF RING = 4 THEN SETCOLOR white
+    LET R = RING * 22
+    PENUP
+    SETXY 0 30
+    PENDOWN
+    CIRCLE R
+NEXT RING
+
+REM Label
+PENUP
+SETXY -60 -150
+PENDOWN
+SETCOLOR gold
+LABEL "Happy Coding!" 16
+
+PRINT "Fireworks display complete!"
+END

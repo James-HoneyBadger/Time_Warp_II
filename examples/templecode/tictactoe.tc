@@ -1,0 +1,129 @@
+REM TempleCode Tic-Tac-Toe
+REM Two-player game — X goes first
+
+CLEARSCREEN
+HIDETURTLE
+
+REM --- Set up board ---
+DIM BOARD(9)
+FOR I = 1 TO 9
+    LET BOARD(I) = I
+NEXT I
+
+LET PLAYER = 1
+LET MOVES = 0
+LET WINNER = 0
+
+PRINT "================================"
+PRINT "        Tic-Tac-Toe"
+PRINT "================================"
+PRINT "  Player 1 = X   Player 2 = O"
+PRINT ""
+PRINT "  Enter the number (1-9) of the"
+PRINT "  square you want to claim:"
+PRINT ""
+PRINT "   1 | 2 | 3"
+PRINT "   ---------"
+PRINT "   4 | 5 | 6"
+PRINT "   ---------"
+PRINT "   7 | 8 | 9"
+PRINT ""
+
+*game_loop
+
+GOSUB ShowBoard
+PRINT ""
+
+IF PLAYER = 1 THEN PRINT "Player X, enter your move (1-9):"
+IF PLAYER = 2 THEN PRINT "Player O, enter your move (1-9):"
+INPUT MOVE
+
+LET MOVE = INT(MOVE)
+
+IF MOVE < 1 OR MOVE > 9 THEN PRINT "Invalid! Choose 1-9."
+IF MOVE < 1 OR MOVE > 9 THEN GOTO game_loop
+IF BOARD(MOVE) = "X" OR BOARD(MOVE) = "O" THEN PRINT "Square taken! Try again."
+IF BOARD(MOVE) = "X" OR BOARD(MOVE) = "O" THEN GOTO game_loop
+
+REM Place the piece
+IF PLAYER = 1 THEN LET BOARD(MOVE) = "X"
+IF PLAYER = 2 THEN LET BOARD(MOVE) = "O"
+LET MOVES = MOVES + 1
+
+REM Check for winner
+GOSUB CheckWinner
+IF WINNER = 1 THEN GOTO game_won
+
+IF MOVES = 9 THEN GOTO game_draw
+
+REM Switch player
+IF PLAYER = 1 THEN LET PLAYER = 2 ELSE LET PLAYER = 1
+GOTO game_loop
+
+*game_won
+GOSUB ShowBoard
+PRINT ""
+PRINT "================================"
+IF WINNER_MARK = "X" THEN PRINT "  Player X WINS! Congratulations!"
+IF WINNER_MARK = "O" THEN PRINT "  Player O WINS! Congratulations!"
+PRINT "================================"
+GOSUB DrawWin
+END
+
+*game_draw
+GOSUB ShowBoard
+PRINT ""
+PRINT "================================"
+PRINT "       It's a DRAW!"
+PRINT "================================"
+END
+
+REM --------------------------------
+ShowBoard:
+    PRINT ""
+    PRINT "  " + STR$(BOARD(1)) + " | " + STR$(BOARD(2)) + " | " + STR$(BOARD(3))
+    PRINT "  ---------"
+    PRINT "  " + STR$(BOARD(4)) + " | " + STR$(BOARD(5)) + " | " + STR$(BOARD(6))
+    PRINT "  ---------"
+    PRINT "  " + STR$(BOARD(7)) + " | " + STR$(BOARD(8)) + " | " + STR$(BOARD(9))
+RETURN
+
+CheckWinner:
+    LET WINNER = 0
+    REM Rows
+    IF BOARD(1) = BOARD(2) AND BOARD(2) = BOARD(3) AND BOARD(1) <> 1 THEN LET WINNER = 1
+    IF BOARD(1) = BOARD(2) AND BOARD(2) = BOARD(3) AND BOARD(1) <> 1 THEN LET WINNER_MARK = BOARD(1)
+    IF BOARD(4) = BOARD(5) AND BOARD(5) = BOARD(6) AND BOARD(4) <> 4 THEN LET WINNER = 1
+    IF BOARD(4) = BOARD(5) AND BOARD(5) = BOARD(6) AND BOARD(4) <> 4 THEN LET WINNER_MARK = BOARD(4)
+    IF BOARD(7) = BOARD(8) AND BOARD(8) = BOARD(9) AND BOARD(7) <> 7 THEN LET WINNER = 1
+    IF BOARD(7) = BOARD(8) AND BOARD(8) = BOARD(9) AND BOARD(7) <> 7 THEN LET WINNER_MARK = BOARD(7)
+    REM Columns
+    IF BOARD(1) = BOARD(4) AND BOARD(4) = BOARD(7) AND BOARD(1) <> 1 THEN LET WINNER = 1
+    IF BOARD(1) = BOARD(4) AND BOARD(4) = BOARD(7) AND BOARD(1) <> 1 THEN LET WINNER_MARK = BOARD(1)
+    IF BOARD(2) = BOARD(5) AND BOARD(5) = BOARD(8) AND BOARD(2) <> 2 THEN LET WINNER = 1
+    IF BOARD(2) = BOARD(5) AND BOARD(5) = BOARD(8) AND BOARD(2) <> 2 THEN LET WINNER_MARK = BOARD(2)
+    IF BOARD(3) = BOARD(6) AND BOARD(6) = BOARD(9) AND BOARD(3) <> 3 THEN LET WINNER = 1
+    IF BOARD(3) = BOARD(6) AND BOARD(6) = BOARD(9) AND BOARD(3) <> 3 THEN LET WINNER_MARK = BOARD(3)
+    REM Diagonals
+    IF BOARD(1) = BOARD(5) AND BOARD(5) = BOARD(9) AND BOARD(1) <> 1 THEN LET WINNER = 1
+    IF BOARD(1) = BOARD(5) AND BOARD(5) = BOARD(9) AND BOARD(1) <> 1 THEN LET WINNER_MARK = BOARD(1)
+    IF BOARD(3) = BOARD(5) AND BOARD(5) = BOARD(7) AND BOARD(3) <> 3 THEN LET WINNER = 1
+    IF BOARD(3) = BOARD(5) AND BOARD(5) = BOARD(7) AND BOARD(3) <> 3 THEN LET WINNER_MARK = BOARD(3)
+RETURN
+
+DrawWin:
+    REM Draw a big X or O on the canvas to celebrate
+    PENUP
+    HOME
+    PENDOWN
+    SETPENSIZE 6
+    IF WINNER_MARK = "X" THEN SETCOLOR red
+    IF WINNER_MARK = "O" THEN SETCOLOR blue
+    IF WINNER_MARK = "X" THEN CIRCLE 80
+    IF WINNER_MARK = "O" THEN CIRCLE 80
+    PENUP
+    SETXY 0 -30
+    PENDOWN
+    SETCOLOR gold
+    LABEL "WINNER!" 28
+RETURN

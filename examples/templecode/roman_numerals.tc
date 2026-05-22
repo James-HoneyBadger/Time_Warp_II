@@ -1,0 +1,124 @@
+REM TempleCode Roman Numerals Converter
+REM Convert between decimal and Roman numerals — both directions
+
+PRINT "================================"
+PRINT "    Roman Numeral Converter"
+PRINT "================================"
+PRINT ""
+
+*menu
+PRINT "Choose direction:"
+PRINT "  1) Decimal  →  Roman"
+PRINT "  2) Roman    →  Decimal"
+PRINT "  3) Quit"
+PRINT ""
+INPUT CHOICE
+
+IF CHOICE = 1 THEN GOTO to_roman
+IF CHOICE = 2 THEN GOTO to_decimal
+IF CHOICE = 3 THEN GOTO quit_prog
+GOTO menu
+
+REM ============================================================
+*to_roman
+PRINT ""
+PRINT "Enter a whole number (1-3999):"
+INPUT NUM
+LET NUM = INT(NUM)
+IF NUM < 1 OR NUM > 3999 THEN
+    PRINT "Out of range! Enter 1-3999."
+    GOTO to_roman
+END IF
+
+LET ROMAN = ""
+LET N = NUM
+
+IF N >= 1000 THEN LET ROMAN = ROMAN + REPEAT$("M", INT(N/1000))
+IF N >= 1000 THEN LET N = N MOD 1000
+IF N >= 900 THEN LET ROMAN = ROMAN + "CM"
+IF N >= 900 THEN LET N = N - 900
+IF N >= 500 THEN LET ROMAN = ROMAN + "D"
+IF N >= 500 THEN LET N = N - 500
+IF N >= 400 THEN LET ROMAN = ROMAN + "CD"
+IF N >= 400 THEN LET N = N - 400
+IF N >= 100 THEN LET ROMAN = ROMAN + REPEAT$("C", INT(N/100))
+IF N >= 100 THEN LET N = N MOD 100
+IF N >= 90 THEN LET ROMAN = ROMAN + "XC"
+IF N >= 90 THEN LET N = N - 90
+IF N >= 50 THEN LET ROMAN = ROMAN + "L"
+IF N >= 50 THEN LET N = N - 50
+IF N >= 40 THEN LET ROMAN = ROMAN + "XL"
+IF N >= 40 THEN LET N = N - 40
+IF N >= 10 THEN LET ROMAN = ROMAN + REPEAT$("X", INT(N/10))
+IF N >= 10 THEN LET N = N MOD 10
+IF N >= 9 THEN LET ROMAN = ROMAN + "IX"
+IF N >= 9 THEN LET N = N - 9
+IF N >= 5 THEN LET ROMAN = ROMAN + "V"
+IF N >= 5 THEN LET N = N - 5
+IF N >= 4 THEN LET ROMAN = ROMAN + "IV"
+IF N >= 4 THEN LET N = N - 4
+IF N >= 1 THEN LET ROMAN = ROMAN + REPEAT$("I", N)
+
+PRINT ""
+PRINT "  "; NUM; "  =  "; ROMAN
+PRINT ""
+GOTO menu
+
+REM ============================================================
+*to_decimal
+PRINT ""
+PRINT "Enter Roman numerals (e.g. XIV, MCMXCIX):"
+INPUT ROMAN_IN$
+LET ROMAN_IN$ = UCASE$(TRIM$(ROMAN_IN$))
+LET RLEN = LEN(ROMAN_IN$)
+LET RESULT = 0
+LET VALID = 1
+
+IF RLEN = 0 THEN PRINT "  Empty input."
+IF RLEN = 0 THEN GOTO menu
+
+FOR I = 1 TO RLEN
+    LET CH = MID$(ROMAN_IN$, I, 1)
+    LET NEXT_CH = ""
+    IF I < RLEN THEN LET NEXT_CH = MID$(ROMAN_IN$, I+1, 1)
+
+    LET V = 0
+    IF CH = "I" THEN LET V = 1
+    IF CH = "V" THEN LET V = 5
+    IF CH = "X" THEN LET V = 10
+    IF CH = "L" THEN LET V = 50
+    IF CH = "C" THEN LET V = 100
+    IF CH = "D" THEN LET V = 500
+    IF CH = "M" THEN LET V = 1000
+
+    IF V = 0 THEN LET VALID = 0
+
+    LET NV = 0
+    IF NEXT_CH = "I" THEN LET NV = 1
+    IF NEXT_CH = "V" THEN LET NV = 5
+    IF NEXT_CH = "X" THEN LET NV = 10
+    IF NEXT_CH = "L" THEN LET NV = 50
+    IF NEXT_CH = "C" THEN LET NV = 100
+    IF NEXT_CH = "D" THEN LET NV = 500
+    IF NEXT_CH = "M" THEN LET NV = 1000
+
+    IF V < NV THEN
+        LET RESULT = RESULT - V
+    ELSE
+        LET RESULT = RESULT + V
+    END IF
+NEXT I
+
+IF VALID = 0 THEN
+    PRINT "  Invalid Roman numeral: "; ROMAN_IN$
+ELSE
+    PRINT ""
+    PRINT "  "; ROMAN_IN$; "  =  "; RESULT
+END IF
+PRINT ""
+GOTO menu
+
+*quit_prog
+PRINT ""
+PRINT "Vale! (Goodbye in Latin)"
+END

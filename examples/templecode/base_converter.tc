@@ -1,0 +1,141 @@
+REM TempleCode Number Base Converter
+REM Converts numbers between decimal, binary, octal, and hexadecimal
+
+PRINT "================================"
+PRINT "    Number Base Converter"
+PRINT "================================"
+PRINT ""
+
+*menu
+PRINT "Conversions:"
+PRINT "  1) Decimal  → Binary / Octal / Hex"
+PRINT "  2) Binary   → Decimal"
+PRINT "  3) Octal    → Decimal"
+PRINT "  4) Hex      → Decimal"
+PRINT "  5) Quit"
+PRINT ""
+INPUT CHOICE
+
+IF CHOICE = 1 THEN GOTO from_decimal
+IF CHOICE = 2 THEN GOTO from_binary
+IF CHOICE = 3 THEN GOTO from_octal
+IF CHOICE = 4 THEN GOTO from_hex
+IF CHOICE = 5 THEN GOTO bye
+GOTO menu
+
+REM ============================================================
+*from_decimal
+PRINT ""
+PRINT "Enter a decimal number (0-65535):"
+INPUT DNUM
+LET DNUM = INT(ABS(DNUM))
+IF DNUM > 65535 THEN PRINT "Too large! Max 65535." : GOTO from_decimal
+
+PRINT ""
+PRINT "  Decimal  : "; DNUM
+PRINT "  Binary   : "; BIN(DNUM)
+PRINT "  Octal    : "; OCT(DNUM)
+PRINT "  Hex      : "; HEX(DNUM)
+PRINT "  Bits used:"
+GOSUB CountBits
+PRINT ""
+GOTO menu
+
+REM ============================================================
+*from_binary
+PRINT ""
+PRINT "Enter a binary number (digits 0 and 1 only):"
+INPUT BIN_IN$
+LET BIN_IN$ = TRIM$(BIN_IN$)
+LET BLEN = LEN(BIN_IN$)
+LET RESULT = 0
+LET VALID = 1
+FOR I = 1 TO BLEN
+    LET BIT = MID$(BIN_IN$, I, 1)
+    IF BIT <> "0" AND BIT <> "1" THEN LET VALID = 0
+    LET RESULT = RESULT * 2 + VAL(BIT)
+NEXT I
+IF VALID = 0 THEN PRINT "Invalid binary number!" : GOTO from_binary
+PRINT ""
+PRINT "  Binary  "; BIN_IN$; " = "; RESULT; " (decimal)"
+PRINT "  Hex:    "; HEX(RESULT)
+PRINT "  Octal:  "; OCT(RESULT)
+PRINT ""
+GOTO menu
+
+REM ============================================================
+*from_octal
+PRINT ""
+PRINT "Enter an octal number (digits 0-7 only):"
+INPUT OCT_IN$
+LET OCT_IN$ = TRIM$(OCT_IN$)
+LET OLEN = LEN(OCT_IN$)
+LET RESULT = 0
+LET VALID = 1
+FOR I = 1 TO OLEN
+    LET DIGIT = VAL(MID$(OCT_IN$, I, 1))
+    IF DIGIT < 0 OR DIGIT > 7 THEN LET VALID = 0
+    LET RESULT = RESULT * 8 + DIGIT
+NEXT I
+IF VALID = 0 THEN PRINT "Invalid octal number!" : GOTO from_octal
+PRINT ""
+PRINT "  Octal  "; OCT_IN$; " = "; RESULT; " (decimal)"
+PRINT "  Binary: "; BIN(RESULT)
+PRINT "  Hex:    "; HEX(RESULT)
+PRINT ""
+GOTO menu
+
+REM ============================================================
+*from_hex
+PRINT ""
+PRINT "Enter a hex number (0-9, A-F):"
+INPUT HEX_IN$
+LET HEX_IN$ = UCASE$(TRIM$(HEX_IN$))
+LET HLEN = LEN(HEX_IN$)
+LET RESULT = 0
+LET VALID = 1
+FOR I = 1 TO HLEN
+    LET HC = MID$(HEX_IN$, I, 1)
+    LET HV = 0
+    IF HC = "0" THEN LET HV = 0
+    IF HC = "1" THEN LET HV = 1
+    IF HC = "2" THEN LET HV = 2
+    IF HC = "3" THEN LET HV = 3
+    IF HC = "4" THEN LET HV = 4
+    IF HC = "5" THEN LET HV = 5
+    IF HC = "6" THEN LET HV = 6
+    IF HC = "7" THEN LET HV = 7
+    IF HC = "8" THEN LET HV = 8
+    IF HC = "9" THEN LET HV = 9
+    IF HC = "A" THEN LET HV = 10
+    IF HC = "B" THEN LET HV = 11
+    IF HC = "C" THEN LET HV = 12
+    IF HC = "D" THEN LET HV = 13
+    IF HC = "E" THEN LET HV = 14
+    IF HC = "F" THEN LET HV = 15
+    IF HC < "0" OR (HC > "9" AND HC < "A") OR HC > "F" THEN LET VALID = 0
+    LET RESULT = RESULT * 16 + HV
+NEXT I
+IF VALID = 0 THEN PRINT "Invalid hex number!" : GOTO from_hex
+PRINT ""
+PRINT "  Hex  "; HEX_IN$; " = "; RESULT; " (decimal)"
+PRINT "  Binary: "; BIN(RESULT)
+PRINT "  Octal:  "; OCT(RESULT)
+PRINT ""
+GOTO menu
+
+CountBits:
+    LET N2 = DNUM
+    LET BITS = 0
+    WHILE N2 > 0
+        LET BITS = BITS + 1
+        LET N2 = INT(N2 / 2)
+    WEND
+    IF DNUM = 0 THEN LET BITS = 1
+    PRINT BITS
+RETURN
+
+*bye
+PRINT ""
+PRINT "Goodbye — keep counting!"
+END
