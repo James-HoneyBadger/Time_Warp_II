@@ -5,7 +5,7 @@
 
 Time Warp II is an educational IDE and a special version of **Time Warp Classic** with various enhancements and revisions, designed specifically for the **TempleCode language** — a fusion of BASIC, PILOT, and Logo. Write programs that mix line-numbered BASIC statements, PILOT interactive commands, and Logo turtle graphics — all in a single `.tc` file.
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/James-HoneyBadger/Time_Warp_II)
+[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)](https://github.com/James-HoneyBadger/Time_Warp_II)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
