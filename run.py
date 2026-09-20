@@ -174,7 +174,7 @@ def verify_installation(venv_path):
 
     # Check tkinter (required)
     result = run_command(f"{python_exe} -c 'import tkinter'", capture_output=True)
-    if result.returncode == 0:
+    if result is not False and getattr(result, 'returncode', 1) == 0:
         print_success("tkinter available")
     else:
         print_error("tkinter not available!")
@@ -194,7 +194,7 @@ def verify_installation(venv_path):
 
     for pkg, msg in packages:
         result = run_command(f"{python_exe} -c 'import {pkg}'", capture_output=True)
-        if result.returncode == 0:
+        if result is not False and getattr(result, 'returncode', 1) == 0:
             print_success(msg)
         else:
             print_warning(f"{pkg} not available (optional feature)")

@@ -47,77 +47,111 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║        Time Warp II - TempleCode Language IDE              ║${NC}"
-echo -e "${BLUE}║              Initialization & Setup Script                 ║${NC}"
-echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
-echo ""
+VENV_DIR="$SCRIPT_DIR/venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
+VENV_ACTIVATE="$VENV_DIR/bin/activate"
 
-# ============================================================================
-# Step 1: Check Python availability
-# ============================================================================
-echo -e "${YELLOW}[1/4]${NC} Checking Python installation..."
-
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}❌ Python 3 not found!${NC}"
-    echo "Please install Python 3.9 or higher from https://www.python.org/"
-    exit 1
-fi
-
-PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
-echo -e "${GREEN}✓${NC} Python $PYTHON_VERSION found"
-echo ""
-
-# ============================================================================
-# Step 2: Virtual Environment Setup
-# ============================================================================
-echo -e "${YELLOW}[2/4]${NC} Setting up Virtual Environment..."
-
-if [ "$CLEAN" = true ]; then
-    if [ -d "venv" ]; then
-        echo "🗑️  Removing existing virtual environment..."
-        rm -rf venv
+ensure_python() {
+    if ! command -v python3 &> /dev/null; then
+        echo -e "${RED}❌ Python 3 not found!${NC}"
+        echo "Please install Python 3.9 or higher from https://www.python.org/"
+        exit 1
     fi
-fi
 
-if [ ! -d "venv" ]; then
-    echo "📦 Creating virtual environment..."
-    python3 -m venv venv
-    echo -e "${GREEN}✓${NC} Virtual environment created"
-else
-    echo -e "${GREEN}✓${NC} Virtual environment already exists"
-fi
+    PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
+    echo -e "${GREEN}✓${NC} Python $PYTHON_VERSION found"
+    echo ""
+}
 
-# ============================================================================
-# Step 3: Activate Virtual Environment
-# ============================================================================
-echo "🔗 Activating virtual environment..."
+ensure_venv() {
+    echo -e "${YELLOW}[2/4]${NC} Setting up Virtual Environment..."
 
-if [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
-    echo -e "${GREEN}✓${NC} Virtual environment activated"
-else
-    echo -e "${RED}❌ Failed to activate virtual environment${NC}"
-    exit 1
-fi
-echo ""
+    if [ "$CLEAN" = true ] && [ -d "$VENV_DIR" ]; then
+        echo "🗑️  Removing existing virtual environment..."
+        rm -rf "$VENV_DIR"
+    fi
 
-# ============================================================================
-# Step 4: Install Dependencies
-# ============================================================================
-if [ "$NO_INSTALL" = false ]; then
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "📦 Creating virtual environment..."
+        python3 -m venv "$VENV_DIR"
+    else
+        echo -e "${GREEN}✓${NC} Virtual environment already exists"
+    fi
+
+    if [ ! -f "$VENV_PYTHON" ]; then
+        echo -e "${RED}❌ Virtual environment python not found${NC}"
+        echo "Repairing broken venv..."
+        python3 -m venv --clear "$VENV_DIR"
+    fi
+
+    if [ ! -f "$VENV_PYTHON" ]; then
+        echo -e "${RED}❌ Failed to create a usable virtual environment${NC}"
+        exit 1
+    fi
+
+    if ! "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
+        echo -e "${YELLOW}⚠${NC} ensurepip unavailable; attempting to repair pip in the virtual environment"
+        python3 -m venv --clear "$VENV_DIR"
+    fi
+
+    if ! "$VENV_PYTHON" -c "import sys; print(sys.executable)" >/dev/null 2>&1; then
+        echo -e "${RED}❌ Broken virtual environment: cannot run Python from venv${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓${NC} Virtual environment ready"
+    echo ""
+}
+
+activate_venv() {
+    echo "🔗 Activating virtual environment..."
+
+    if [ -f "$VENV_ACTIVATE" ]; then
+        # shellcheck disable=SC1090
+        source "$VENV_ACTIVATE"
+        echo -e "${GREEN}✓${NC} Virtual environment activated"
+    else
+        echo -e "${RED}❌ Failed to activate virtual environment${NC}"
+        exit 1
+    fi
+    echo ""
+}
+
+ensure_package() {
+    local package_name="$1"
+    local pip_name="${2:-$package_name}"
+    local display_name="$3"
+
+    if "$VENV_PYTHON" -c "import $package_name" >/dev/null 2>&1; then
+        echo "  ✓ $display_name already installed"
+        return 0
+    fi
+
+    echo "  📦 Installing missing $display_name..."
+    if "$VENV_PYTHON" -m pip install "$pip_name"; then
+        echo "  ✓ $display_name installed successfully"
+        return 0
+    fi
+
+    echo -e "${YELLOW}  ⚠${NC} $display_name could not be installed automatically"
+    return 1
+}
+
+install_dependencies() {
+    if [ "$NO_INSTALL" = true ]; then
+        echo -e "${YELLOW}[3/4]${NC} Skipping dependency installation (--no-install)"
+        return 0
+    fi
+
     echo -e "${YELLOW}[3/4]${NC} Installing Python dependencies..."
-    
-    # Upgrade pip first
-    echo "📥 Upgrading pip..."
-    pip install --upgrade pip setuptools wheel > /dev/null 2>&1
-    
-    # Check if requirements.txt exists
+
     if [ -f "requirements.txt" ]; then
         echo "📚 Installing packages from requirements.txt..."
-        
-        # Install with some resilience
-        if pip install -r requirements.txt; then
+        if "$VENV_PYTHON" -m pip install --upgrade pip setuptools wheel; then
+            echo -e "${GREEN}✓${NC} Pip tooling updated"
+        fi
+
+        if "$VENV_PYTHON" -m pip install -r requirements.txt; then
             echo -e "${GREEN}✓${NC} All dependencies installed successfully"
         else
             echo -e "${YELLOW}⚠️  Some dependencies may have failed to install${NC}"
@@ -127,55 +161,40 @@ if [ "$NO_INSTALL" = false ]; then
         echo -e "${RED}❌ requirements.txt not found!${NC}"
         exit 1
     fi
-else
-    echo -e "${YELLOW}[3/4]${NC} Skipping dependency installation (--no-install)"
-fi
-echo ""
-
-# ============================================================================
-# Step 5: Verify Installation
-# ============================================================================
-echo -e "${YELLOW}[4/4]${NC} Verifying installation..."
-
-# Check for tkinter (required)
-python3 -c "import tkinter; print('  ✓ tkinter available')" 2>/dev/null || {
-    echo -e "${RED}  ❌ tkinter not available!${NC}"
-    echo "  Note: tkinter usually comes with Python. If missing, try:"
-    echo "    Ubuntu/Debian: sudo apt-get install python3-tk"
-    echo "    Fedora: sudo dnf install python3-tkinter"
-    echo "    macOS: Usually included; brew install python-tk if needed"
+    echo ""
 }
 
-# Check for pygame (recommended)
-if python3 -c "import pygame" 2>/dev/null; then
-    echo "  ✓ pygame available (multimedia support)"
-else
-    echo -e "${YELLOW}  ℹ${NC}  pygame not available (optional - some features limited)"
-fi
+verify_dependencies() {
+    echo -e "${YELLOW}[4/4]${NC} Verifying installation..."
 
-# Check for pygments (recommended)
-if python3 -c "import pygments" 2>/dev/null; then
-    echo "  ✓ pygments available (syntax highlighting)"
-else
-    echo -e "${YELLOW}  ℹ${NC}  pygments not available (syntax highlighting disabled)"
-fi
+    if "$VENV_PYTHON" -c "import tkinter" >/dev/null 2>&1; then
+        echo "  ✓ tkinter available"
+    else
+        echo -e "${RED}  ❌ tkinter not available!${NC}"
+        echo "  This is required. If missing after installation, try:"
+        echo "    Ubuntu/Debian: sudo apt-get install python3-tk"
+        echo "    Fedora: sudo dnf install python3-tkinter"
+        echo "    macOS: brew install python-tk"
+    fi
 
-# Check for PIL/Pillow (optional)
-if python3 -c "import PIL" 2>/dev/null; then
-    echo "  ✓ PIL/Pillow available (image processing)"
-else
-    echo -e "${YELLOW}  ℹ${NC}  PIL/Pillow not available (image features limited)"
-fi
+    ensure_package "pygame" "pygame-ce" "pygame (multimedia support)" || true
+    ensure_package "pygments" "pygments" "pygments (syntax highlighting)" || true
+    ensure_package "PIL" "Pillow" "Pillow (image processing)" || true
 
+    echo ""
+}
+
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║        Time Warp II - TempleCode Language IDE              ║${NC}"
+echo -e "${BLUE}║              Initialization & Setup Script                 ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ============================================================================
-# Step 6: Launch Time Warp II
-# ============================================================================
-echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     🚀 Launching Time Warp II...                        ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
-echo ""
+ensure_python
+ensure_venv
+activate_venv
+install_dependencies
+verify_dependencies
 
 # Verify TimeWarpII.py exists
 if [ ! -f "TimeWarpII.py" ]; then
@@ -183,10 +202,14 @@ if [ ! -f "TimeWarpII.py" ]; then
     exit 1
 fi
 
-# Run the IDE
-python3 TimeWarpII.py "$@"
+echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║     🚀 Launching Time Warp II...                        ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo ""
 
-# Deactivate venv on exit (optional)
+# Run the IDE with the venv interpreter explicitly
+"$VENV_PYTHON" TimeWarpII.py "$@"
+
 deactivate 2>/dev/null || true
 
 echo ""
